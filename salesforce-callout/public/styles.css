@@ -674,14 +674,32 @@ select {
   gap: 8px;
 }
 
+.body-fields-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr) minmax(0, 1.2fr) 32px;
+  gap: 8px;
+  margin-bottom: 6px;
+  padding: 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+
 .body-field-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 32px;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr) minmax(0, 1.2fr) 32px;
   gap: 8px;
   align-items: center;
 }
 
-.body-field-row input {
+.body-field-value-cell {
+  min-width: 0;
+}
+
+.body-field-row input,
+.body-field-row select {
   width: 100%;
   padding: 8px 10px;
   font-size: 13px;
@@ -692,7 +710,12 @@ select {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.body-field-row input:focus {
+.body-field-row select {
+  cursor: pointer;
+}
+
+.body-field-row input:focus,
+.body-field-row select:focus {
   border-color: var(--orange-500);
   box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.2);
 }
@@ -1091,6 +1114,10 @@ select {
 }
 
 @media (max-width: 560px) {
+  .body-fields-columns {
+    display: none;
+  }
+
   .body-field-row {
     grid-template-columns: 1fr;
   }

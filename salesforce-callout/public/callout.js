@@ -159,10 +159,75 @@ function coerceFieldValue(raw, sources, resolveReferences = false, defaultSource
   return raw;
 }
 
+function listTopLevelKeys(source) {
+  if (source == null || typeof source !== "object" || Array.isArray(source)) {
+    return [];
+  }
+  return Object.keys(source);
+}
+
 function createBodyFieldsManager(listEl, addBtn, options = {}) {
   const getSources = options.getSources ?? (() => ({}));
-  const resolveReferences = Boolean(options.resolveReferences);
-  const defaultSource = options.defaultReferenceSource ?? null;
+  const availableSources = options.availableSources ?? [];
+  const paneNumber = options.paneNumber ?? 1;
+
+  const columnsHeader = document.createElement("div");
+  columnsHeader.className = "body-fields-columns";
+  columnsHeader.innerHTML = `
+    <span>Field name</span>
+    <span>Value action</span>
+    <span>Value</span>
+    <span aria-hidden="true"></span>
+  `;
+  listEl.parentElement.insertBefore(columnsHeader, listEl);
+
+  function populateSourceSelect(selectEl, sourceNum, selectedPath = "") {
+    selectEl.replaceChildren();
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Select response field…";
+    selectEl.appendChild(placeholder);
+
+    const sourceData = getSources()[sourceNum];
+    const keys = listTopLevelKeys(sourceData);
+
+    if (keys.length === 0) {
+      placeholder.textContent = `Run Callout ${sourceNum} first`;
+      selectEl.disabled = true;
+      return;
+    }
+
+    selectEl.disabled = false;
+    keys.forEach((key) => {
+      const option = document.createElement("option");
+      option.value = key;
+      option.textContent = key;
+      if (key === selectedPath) {
+        option.selected = true;
+      }
+      selectEl.appendChild(option);
+    });
+  }
+
+  function updateRowValueControl(row) {
+    const actionSelect = row.querySelector(".body-field-action");
+    const valueInput = row.querySelector(".body-field-value-input");
+    const valueSelect = row.querySelector(".body-field-value-select");
+    const action = actionSelect.value;
+
+    if (action === "hardcoded") {
+      valueInput.hidden = false;
+      valueSelect.hidden = true;
+      valueSelect.disabled = true;
+      return;
+    }
+
+    valueInput.hidden = true;
+    valueSelect.hidden = false;
+    const sourceNum = action.replace("callout-", "");
+    populateSourceSelect(valueSelect, sourceNum, valueSelect.value);
+  }
 
   function updateRemoveButtons() {
     const showRemove = listEl.children.length > 1;
@@ -171,7 +236,34 @@ function createBodyFieldsManager(listEl, addBtn, options = {}) {
     });
   }
 
-  function createRow(fieldName = "", fieldValue = "") {
+  function createActionSelect(selectedAction = "hardcoded") {
+    const actionSelect = document.createElement("select");
+    actionSelect.className = "body-field-action";
+    actionSelect.setAttribute("aria-label", "Value action");
+
+    const hardcodedOption = document.createElement("option");
+    hardcodedOption.value = "hardcoded";
+    hardcodedOption.textContent = "Hardcoded";
+    actionSelect.appendChild(hardcodedOption);
+
+    availableSources.forEach((sourceNum) => {
+      const option = document.createElement("option");
+      option.value = `callout-${sourceNum}`;
+      option.textContent = `From Callout ${sourceNum}`;
+      actionSelect.appendChild(option);
+    });
+
+    const canUseSelected =
+      selectedAction === "hardcoded" ||
+      (selectedAction.startsWith("callout-") &&
+        availableSources.includes(Number(selectedAction.replace("callout-", ""))));
+
+    actionSelect.value = canUseSelected ? selectedAction : "hardcoded";
+
+    return actionSelect;
+  }
+
+  function createRow(fieldName = "", action = "hardcoded", fieldValue = "") {
     const row = document.createElement("div");
     row.className = "body-field-row";
     row.setAttribute("role", "listitem");
@@ -183,12 +275,24 @@ function createBodyFieldsManager(listEl, addBtn, options = {}) {
     nameInput.value = fieldName;
     nameInput.setAttribute("aria-label", "Field name");
 
+    const actionSelect = createActionSelect(action);
+
+    const valueCell = document.createElement("div");
+    valueCell.className = "body-field-value-cell";
+
     const valueInput = document.createElement("input");
     valueInput.type = "text";
-    valueInput.className = "body-field-value";
-    valueInput.placeholder = options.valuePlaceholder ?? "Value";
+    valueInput.className = "body-field-value-input";
+    valueInput.placeholder = "Enter value";
     valueInput.value = fieldValue;
     valueInput.setAttribute("aria-label", "Field value");
+
+    const valueSelect = document.createElement("select");
+    valueSelect.className = "body-field-value-select";
+    valueSelect.setAttribute("aria-label", "Response field");
+    valueSelect.hidden = true;
+
+    valueCell.append(valueInput, valueSelect);
 
     const removeBtn = document.createElement("button");
     removeBtn.type = "button";
@@ -203,25 +307,61 @@ function createBodyFieldsManager(listEl, addBtn, options = {}) {
       }
     });
 
-    row.append(nameInput, valueInput, removeBtn);
+    actionSelect.addEventListener("change", () => updateRowValueControl(row));
+
+    row.append(nameInput, actionSelect, valueCell, removeBtn);
+    updateRowValueControl(row);
+
+    if (action.startsWith("callout-") && fieldValue) {
+      valueSelect.value = fieldValue;
+    }
+
     return row;
   }
 
-  function addRow(fieldName = "", fieldValue = "") {
-    listEl.appendChild(createRow(fieldName, fieldValue));
+  function addRow(fieldName = "", action = "hardcoded", fieldValue = "") {
+    listEl.appendChild(createRow(fieldName, action, fieldValue));
     updateRemoveButtons();
+  }
+
+  function resolveRowValue(row) {
+    const name = row.querySelector(".body-field-name").value.trim();
+    if (!name) {
+      return null;
+    }
+
+    const action = row.querySelector(".body-field-action").value;
+    if (action === "hardcoded") {
+      const valueRaw = row.querySelector(".body-field-value-input").value.trim();
+      return { name, value: coerceFieldValue(valueRaw, getSources(), false) };
+    }
+
+    const sourceNum = action.replace("callout-", "");
+    const path = row.querySelector(".body-field-value-select").value;
+    if (!path) {
+      throw new Error(`Select a Callout ${sourceNum} response field for "${name}".`);
+    }
+
+    const sourceData = getSources()[sourceNum];
+    if (sourceData == null) {
+      throw new Error(`Run Callout ${sourceNum} before sending Callout ${paneNumber}.`);
+    }
+
+    const value = getNestedValue(sourceData, path);
+    if (value === undefined) {
+      throw new Error(`Field "${path}" was not found in the Callout ${sourceNum} response.`);
+    }
+
+    return { name, value };
   }
 
   function buildBodyObject() {
     const body = {};
-    const sources = getSources();
 
     listEl.querySelectorAll(".body-field-row").forEach((row) => {
-      const name = row.querySelector(".body-field-name").value.trim();
-      const valueRaw = row.querySelector(".body-field-value").value.trim();
-
-      if (name) {
-        body[name] = coerceFieldValue(valueRaw, sources, resolveReferences, defaultSource);
+      const resolved = resolveRowValue(row);
+      if (resolved) {
+        body[resolved.name] = resolved.value;
       }
     });
 
@@ -245,14 +385,20 @@ function createBodyFieldsManager(listEl, addBtn, options = {}) {
     entries.forEach(([name, value]) => {
       const serialized =
         typeof value === "object" && value !== null ? JSON.stringify(value) : String(value ?? "");
-      addRow(name, serialized);
+      addRow(name, "hardcoded", serialized);
+    });
+  }
+
+  function refreshSourceOptions() {
+    listEl.querySelectorAll(".body-field-row").forEach((row) => {
+      updateRowValueControl(row);
     });
   }
 
   addBtn.addEventListener("click", () => addRow());
   addRow();
 
-  return { buildBodyObject, setFromObject, addRow };
+  return { buildBodyObject, setFromObject, addRow, refreshSourceOptions };
 }
 
 function showPaneResponse(responseStatus, responseBody, payload) {
@@ -278,10 +424,9 @@ function createPane(suffix, options = {}) {
   const bodyFieldsList = document.getElementById(`body-fields-${suffix}`);
   const addFieldBtn = document.getElementById(`btn-add-field-${suffix}`);
   const bodyFields = createBodyFieldsManager(bodyFieldsList, addFieldBtn, {
+    paneNumber: Number(suffix),
     getSources: options.getSources,
-    resolveReferences: options.resolveReferences,
-    defaultReferenceSource: options.defaultReferenceSource,
-    valuePlaceholder: options.fieldValuePlaceholder,
+    availableSources: options.availableSources ?? [],
   });
 
   function clearStatus() {
@@ -398,6 +543,7 @@ function createPane(suffix, options = {}) {
     showStatus,
     setApiVersion,
     updateBodyHint,
+    refreshSourceOptions: () => bodyFields.refreshSourceOptions(),
   };
 }
 
@@ -450,6 +596,9 @@ function updateAllReferenceHints() {
     1: lastResponses[1],
     2: lastResponses[2],
   });
+  pane1.refreshSourceOptions();
+  pane2.refreshSourceOptions();
+  pane3.refreshSourceOptions();
 }
 
 function redirectToLogin() {
@@ -548,6 +697,7 @@ function destroySessionOnExit() {
 }
 
 const pane1 = createPane("1", {
+  availableSources: [],
   onSuccess: (_payload, request) => {
     pane2.clearStatus();
     pane2.methodSelect.value = request.method;
@@ -559,15 +709,15 @@ const pane1 = createPane("1", {
 
 const pane2 = createPane("2", {
   getSources: () => ({ 1: lastResponses[1] }),
+  availableSources: [1],
   resolveReferences: true,
   defaultReferenceSource: "1",
-  fieldValuePlaceholder: "Value or {field from callout 1}",
 });
 
 const pane3 = createPane("3", {
   getSources: () => ({ 1: lastResponses[1], 2: lastResponses[2] }),
+  availableSources: [1, 2],
   resolveReferences: true,
-  fieldValuePlaceholder: "Value or {field from callout 1/2}",
 });
 
 async function validateSession() {

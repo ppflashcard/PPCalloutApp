@@ -75,7 +75,7 @@
                 <div class="body-fields-header">
                   <div class="field-label">
                     <label>Request Body Fields</label>
-                    <span class="optional">Field name → JSON key, value → JSON value</span>
+                    <span class="optional">Field name, value action, and value for each JSON key</span>
                   </div>
                   <button
                     type="button"
@@ -180,8 +180,7 @@
             <div class="pane-header">
               <h2 id="pane-3-title" class="pane-title">Callout 3</h2>
               <p class="pane-hint">
-                Chain a third request using values from Callout 1 or Callout 2 with
-                <code>{field from callout 1}</code> or <code>{field from callout 2}</code>.
+                Chain a third request using values from Callout 1 or Callout 2 via the value action picklist.
               </p>
             </div>
 
@@ -192,7 +191,7 @@
                 <div class="body-fields-header">
                   <div class="field-label">
                     <label>Request Body Fields</label>
-                    <span class="optional">Use <code>{field from callout 1}</code> or <code>{field from callout 2}</code></span>
+                    <span class="optional">Use <strong>From Callout 1</strong> or <strong>From Callout 2</strong></span>
                   </div>
                   <button
                     type="button"
@@ -298,7 +297,10 @@
           <section class="card callout-card callout-pane" aria-labelledby="pane-2-title">
             <div class="pane-header">
               <h2 id="pane-2-title" class="pane-title">Callout 2</h2>
-              <p class="pane-hint">After Callout 1 succeeds, map its response fields using <code>{fieldName}</code> or <code>{fieldName from callout 1}</code>.</p>
+              <p class="pane-hint">
+                After Callout 1 succeeds, map its response fields using <strong>Value action → From Callout 1</strong>
+                and pick a response key such as <code>goldenPromptText</code>.
+              </p>
             </div>
 
             <div id="references-hint-2" class="references-hint" hidden></div>
@@ -308,7 +310,7 @@
                 <div class="body-fields-header">
                   <div class="field-label">
                     <label>Request Body Fields</label>
-                    <span class="optional">Map Callout 1 values with <code>{fieldName}</code> or <code>{fieldName from callout 1}</code></span>
+                    <span class="optional">Pick <strong>From Callout 1</strong> and choose a response key</span>
                   </div>
                   <button
                     type="button"
