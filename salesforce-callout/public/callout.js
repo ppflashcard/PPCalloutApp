@@ -159,6 +159,22 @@ function coerceFieldValue(raw, sources, resolveReferences = false, defaultSource
   return raw;
 }
 
+function mergeRequestBodies(fieldsBody, textareaBody) {
+  if (!fieldsBody) {
+    return textareaBody;
+  }
+  if (!textareaBody) {
+    return fieldsBody;
+  }
+
+  const fieldKeys = new Set(Object.keys(fieldsBody));
+  const extraTextareaFields = Object.fromEntries(
+    Object.entries(textareaBody).filter(([key]) => !fieldKeys.has(key)),
+  );
+
+  return { ...extraTextareaFields, ...fieldsBody };
+}
+
 function listTopLevelKeys(source) {
   if (source == null || typeof source !== "object" || Array.isArray(source)) {
     return [];
@@ -170,6 +186,15 @@ function createBodyFieldsManager(listEl, addBtn, options = {}) {
   const getSources = options.getSources ?? (() => ({}));
   const availableSources = options.availableSources ?? [];
   const paneNumber = options.paneNumber ?? 1;
+  let onChange = () => {};
+
+  function setOnChange(handler) {
+    onChange = typeof handler === "function" ? handler : () => {};
+  }
+
+  function notifyChange() {
+    onChange();
+  }
 
   const columnsHeader = document.createElement("div");
   columnsHeader.className = "body-fields-columns";
@@ -300,14 +325,23 @@ function createBodyFieldsManager(listEl, addBtn, options = {}) {
     removeBtn.title = "Remove field";
     removeBtn.setAttribute("aria-label", "Remove field");
     removeBtn.textContent = "×";
+    actionSelect.addEventListener("change", () => {
+      updateRowValueControl(row);
+      notifyChange();
+    });
+
+    [nameInput, valueInput, valueSelect].forEach((element) => {
+      element.addEventListener("input", notifyChange);
+      element.addEventListener("change", notifyChange);
+    });
+
     removeBtn.addEventListener("click", () => {
       if (listEl.children.length > 1) {
         row.remove();
         updateRemoveButtons();
+        notifyChange();
       }
     });
-
-    actionSelect.addEventListener("change", () => updateRowValueControl(row));
 
     row.append(nameInput, actionSelect, valueCell, removeBtn);
     updateRowValueControl(row);
@@ -389,16 +423,63 @@ function createBodyFieldsManager(listEl, addBtn, options = {}) {
     });
   }
 
+  function tryPreviewBodyObject() {
+    const body = {};
+
+    listEl.querySelectorAll(".body-field-row").forEach((row) => {
+      const name = row.querySelector(".body-field-name").value.trim();
+      if (!name) {
+        return;
+      }
+
+      const action = row.querySelector(".body-field-action").value;
+      if (action === "hardcoded") {
+        const valueRaw = row.querySelector(".body-field-value-input").value.trim();
+        body[name] = coerceFieldValue(valueRaw, getSources(), false);
+        return;
+      }
+
+      const sourceNum = action.replace("callout-", "");
+      const path = row.querySelector(".body-field-value-select").value;
+      if (!path) {
+        return;
+      }
+
+      const sourceData = getSources()[sourceNum];
+      if (sourceData == null) {
+        return;
+      }
+
+      const value = getNestedValue(sourceData, path);
+      if (value !== undefined) {
+        body[name] = value;
+      }
+    });
+
+    return Object.keys(body).length > 0 ? body : undefined;
+  }
+
   function refreshSourceOptions() {
     listEl.querySelectorAll(".body-field-row").forEach((row) => {
       updateRowValueControl(row);
     });
+    notifyChange();
   }
 
-  addBtn.addEventListener("click", () => addRow());
+  addBtn.addEventListener("click", () => {
+    addRow();
+    notifyChange();
+  });
   addRow();
 
-  return { buildBodyObject, setFromObject, addRow, refreshSourceOptions };
+  return {
+    buildBodyObject,
+    tryPreviewBodyObject,
+    setFromObject,
+    addRow,
+    refreshSourceOptions,
+    setOnChange,
+  };
 }
 
 function showPaneResponse(responseStatus, responseBody, payload) {
@@ -428,6 +509,27 @@ function createPane(suffix, options = {}) {
     getSources: options.getSources,
     availableSources: options.availableSources ?? [],
   });
+
+  function syncBodyPreview() {
+    try {
+      const fieldsBody = bodyFields.tryPreviewBodyObject();
+      let textareaBody;
+      try {
+        textareaBody = parseJsonField(bodyInput.value, "Request Body");
+      } catch {
+        textareaBody = undefined;
+      }
+
+      const merged = mergeRequestBodies(fieldsBody, textareaBody);
+      if (merged) {
+        bodyInput.value = formatJson(merged);
+      }
+    } catch {
+      // ignore incomplete preview state
+    }
+  }
+
+  bodyFields.setOnChange(syncBodyPreview);
 
   function clearStatus() {
     statusEl.hidden = true;
@@ -476,14 +578,14 @@ function createPane(suffix, options = {}) {
       const textareaBody = parseJsonField(bodyInput.value, "Request Body");
       const sources = options.resolveReferences ? options.getSources?.() ?? {} : {};
 
-      if (fieldsBody && textareaBody) {
-        body = { ...fieldsBody, ...textareaBody };
-      } else {
-        body = textareaBody ?? fieldsBody;
-      }
+      body = mergeRequestBodies(fieldsBody, textareaBody);
 
       if (body !== undefined && options.resolveReferences) {
         body = resolveReferencesDeep(body, sources, options.defaultReferenceSource ?? null);
+      }
+
+      if (body) {
+        bodyInput.value = formatJson(body);
       }
     } catch (error) {
       showStatus("error", "Validation error", error.message);
@@ -544,6 +646,7 @@ function createPane(suffix, options = {}) {
     setApiVersion,
     updateBodyHint,
     refreshSourceOptions: () => bodyFields.refreshSourceOptions(),
+    syncBodyPreview,
   };
 }
 
@@ -599,6 +702,8 @@ function updateAllReferenceHints() {
   pane1.refreshSourceOptions();
   pane2.refreshSourceOptions();
   pane3.refreshSourceOptions();
+  pane2.syncBodyPreview();
+  pane3.syncBodyPreview();
 }
 
 function redirectToLogin() {
