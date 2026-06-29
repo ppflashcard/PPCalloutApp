@@ -3,7 +3,7 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { SalesforceClient, resolveLoginUrl } from "./salesforce/client.js";
+import { SalesforceClient, resolveLoginUrl, exchangeAuthorizationCode, buildOAuthCodeConfig, clientFromAuthenticatedSession, buildTokenConfig } from "./salesforce/client.js";
 import { SalesforceError } from "./salesforce/types.js";
 import type { HttpMethod, SalesforceAuthConfig, SessionAuthConfig } from "./salesforce/types.js";
 
@@ -23,10 +23,76 @@ interface StoredSession {
 
 const sessions = new Map<string, StoredSession>();
 
+interface PendingOAuth {
+  environment: "prod" | "sandbox";
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+  createdAt: number;
+}
+
+const pendingOAuth = new Map<string, PendingOAuth>();
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+
+function pruneExpiredOAuthStates(): void {
+  const cutoff = Date.now() - OAUTH_STATE_TTL_MS;
+  for (const [state, pending] of pendingOAuth) {
+    if (pending.createdAt < cutoff) {
+      wipePendingOAuth(state);
+    }
+  }
+}
+
+function wipePendingOAuth(state: string): void {
+  const pending = pendingOAuth.get(state);
+  if (pending) {
+    pending.clientId = "";
+    pending.clientSecret = "";
+    pendingOAuth.delete(state);
+  }
+}
+
+function destroySession(sessionId: string): void {
+  const stored = sessions.get(sessionId);
+  if (stored) {
+    stored.client.clearSensitiveData();
+    sessions.delete(sessionId);
+  }
+}
+
+function getPublicOrigin(req: express.Request): string {
+  if (process.env.OAUTH_CALLBACK_URL) {
+    return new URL(process.env.OAUTH_CALLBACK_URL).origin;
+  }
+
+  const forwardedHost = req.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const host = forwardedHost || req.get("host")?.split(",")[0]?.trim() || process.env.VERCEL_URL;
+
+  if (!host) {
+    return `http://localhost:${PORT}`;
+  }
+
+  let proto = req.get("x-forwarded-proto")?.split(",")[0]?.trim() || req.protocol;
+  if (process.env.VERCEL || host.endsWith(".vercel.app")) {
+    proto = "https";
+  }
+
+  return `${proto}://${host}`;
+}
+
+function getOAuthCallbackUrl(req: express.Request): string {
+  if (process.env.OAUTH_CALLBACK_URL) {
+    return process.env.OAUTH_CALLBACK_URL.replace(/\/$/, "");
+  }
+
+  return `${getPublicOrigin(req)}/api/oauth/callback`;
+}
+
 function getDevReloadVersion(): string {
   const watchedFiles = [
     path.join(publicDir, "index.html"),
     path.join(publicDir, "callout.html"),
+    path.join(publicDir, "oauth-complete.html"),
     path.join(publicDir, "app.js"),
     path.join(publicDir, "callout.js"),
     path.join(publicDir, "styles.css"),
@@ -66,6 +132,12 @@ interface OAuthLoginBody {
 interface SessionLoginBody {
   instanceUrl: string;
   sessionId: string;
+}
+
+interface OAuthStartBody {
+  environment: "prod" | "sandbox";
+  clientId: string;
+  clientSecret: string;
 }
 
 function buildOAuthConfig(body: OAuthLoginBody): SalesforceAuthConfig {
@@ -322,14 +394,16 @@ app.post("/api/login/oauth", async (req, res) => {
       return;
     }
 
+    const tokenClient = clientFromAuthenticatedSession(client, API_VERSION);
+
     let user: SalesforceUser;
     try {
-      user = await fetchCurrentUser(client);
+      user = await fetchCurrentUser(tokenClient);
     } catch {
       user = { displayName: username.trim(), username: username.trim() };
     }
 
-    const sessionId = createSession(client, user, session.instanceUrl);
+    const sessionId = createSession(tokenClient, user, session.instanceUrl);
 
     res.json({
       success: true,
@@ -342,6 +416,129 @@ app.post("/api/login/oauth", async (req, res) => {
     });
   } catch (error) {
     handleError(res, error);
+  }
+});
+
+app.get("/api/oauth/config", (req, res) => {
+  res.json({ redirectUri: getOAuthCallbackUrl(req) });
+});
+
+app.post("/api/oauth/start", (req, res) => {
+  try {
+    pruneExpiredOAuthStates();
+
+    const { environment, clientId, clientSecret } = req.body as OAuthStartBody;
+
+    if (!environment || !clientId || !clientSecret) {
+      res.status(400).json({ error: "Environment, Client ID, and Client Secret are required." });
+      return;
+    }
+
+    const redirectUri = getOAuthCallbackUrl(req);
+    const state = crypto.randomUUID();
+    pendingOAuth.set(state, {
+      environment,
+      clientId: clientId.trim(),
+      clientSecret: clientSecret.trim(),
+      redirectUri,
+      createdAt: Date.now(),
+    });
+
+    const loginUrl = resolveLoginUrl(environment);
+    const authorizeUrl = new URL(`${loginUrl}/services/oauth2/authorize`);
+    authorizeUrl.searchParams.set("response_type", "code");
+    authorizeUrl.searchParams.set("client_id", clientId.trim());
+    authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+    authorizeUrl.searchParams.set("scope", "api refresh_token");
+    authorizeUrl.searchParams.set("state", state);
+
+    res.json({
+      success: true,
+      authorizeUrl: authorizeUrl.toString(),
+      redirectUri,
+    });
+  } catch (error) {
+    handleError(res, error);
+  }
+});
+
+app.get("/api/oauth/callback", async (req, res) => {
+  try {
+    pruneExpiredOAuthStates();
+
+    const { code, state, error, error_description: errorDescription } = req.query;
+
+    if (typeof error === "string") {
+      const desc = typeof errorDescription === "string" ? errorDescription : error;
+      const hint =
+        error === "redirect_uri_mismatch"
+          ? " Add this exact Callback URL in your Connected App (Setup → App Manager → Edit → OAuth): "
+            + getOAuthCallbackUrl(req)
+            + " — no trailing slash. Changes can take a few minutes to apply."
+          : "";
+      res.redirect(`/oauth-complete.html?error=${encodeURIComponent(desc + hint)}`);
+      return;
+    }
+
+    if (typeof code !== "string" || typeof state !== "string") {
+      res.redirect("/oauth-complete.html?error=Missing%20authorization%20code.");
+      return;
+    }
+
+    const pending = pendingOAuth.get(state);
+    if (!pending) {
+      res.redirect("/oauth-complete.html?error=Login%20expired.%20Please%20try%20again.");
+      return;
+    }
+
+    const { clientId, clientSecret, redirectUri, environment } = pending;
+    wipePendingOAuth(state);
+
+    const loginUrl = resolveLoginUrl(environment);
+    const tokenResponse = await exchangeAuthorizationCode({
+      loginUrl,
+      clientId,
+      clientSecret,
+      code,
+      redirectUri,
+    });
+
+    if (!tokenResponse.refresh_token) {
+      res.redirect(
+        "/oauth-complete.html?error=No%20refresh%20token%20returned.%20Enable%20refresh%20tokens%20on%20your%20Connected%20App.",
+      );
+      return;
+    }
+
+    const client = new SalesforceClient(
+      buildOAuthCodeConfig({
+        loginUrl,
+        refreshToken: tokenResponse.refresh_token,
+        accessToken: tokenResponse.access_token,
+        instanceUrl: tokenResponse.instance_url,
+        apiVersion: API_VERSION,
+      }),
+      { clientId, clientSecret },
+    );
+
+    const user = await fetchCurrentUser(client);
+    const sessionId = createSession(client, user, tokenResponse.instance_url);
+
+    const completeUrl = new URL("/oauth-complete.html", getPublicOrigin(req));
+    completeUrl.searchParams.set("sessionId", sessionId);
+    completeUrl.searchParams.set("instanceUrl", tokenResponse.instance_url);
+    completeUrl.searchParams.set("displayName", user.displayName);
+    completeUrl.searchParams.set("username", user.username);
+
+    res.redirect(completeUrl.pathname + completeUrl.search);
+  } catch (error) {
+    const message =
+      error instanceof SalesforceError
+        ? error.message
+        : error instanceof Error
+          ? error.message
+          : "OAuth login failed.";
+    res.redirect(`/oauth-complete.html?error=${encodeURIComponent(message)}`);
   }
 });
 
@@ -365,7 +562,15 @@ app.post("/api/login/session", async (req, res) => {
 
     const user = await fetchCurrentUser(client);
 
-    const sessionId = createSession(client, user, validatedUrl);
+    const tokenClient = new SalesforceClient(
+      buildTokenConfig({
+        accessToken: sessionConfig.sessionId,
+        instanceUrl: validatedUrl,
+        apiVersion: API_VERSION,
+      }),
+    );
+
+    const sessionId = createSession(tokenClient, user, validatedUrl);
 
     res.json({
       success: true,
@@ -447,13 +652,17 @@ app.post("/api/callout", async (req, res) => {
 app.post("/api/logout", (req, res) => {
   const { sessionId } = req.body as { sessionId?: string };
   if (sessionId) {
-    sessions.delete(sessionId);
+    destroySession(sessionId);
   }
   res.json({ success: true });
 });
 
 app.get("/callout.html", (_req, res) => {
   res.sendFile(path.join(publicDir, "callout.html"));
+});
+
+app.get("/oauth-complete.html", (_req, res) => {
+  res.sendFile(path.join(publicDir, "oauth-complete.html"));
 });
 
 app.get("/__dev/reload-version", (_req, res) => {

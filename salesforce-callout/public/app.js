@@ -1,12 +1,15 @@
 const tabs = document.querySelectorAll(".tab");
+const ssoPanel = document.getElementById("form-sso");
 const credentialsPanel = document.getElementById("form-credentials");
 const sessionPanel = document.getElementById("form-session");
 const statusEl = document.getElementById("status");
 const userBarMount = document.getElementById("user-bar-mount");
+const ssoBtn = document.getElementById("btn-connect-sso");
 const credentialsBtn = document.getElementById("btn-connect-credentials");
 const sessionBtn = document.getElementById("btn-connect-session");
 const openApiPageBtn = document.getElementById("btn-open-api-page");
 const instanceUrlInput = document.getElementById("instanceUrl");
+const ssoCallbackUrlEl = document.getElementById("sso-callback-url");
 
 const SENSITIVE_FIELDS = [
   "clientId",
@@ -17,9 +20,63 @@ const SENSITIVE_FIELDS = [
   "sessionId",
 ];
 
+const panels = {
+  sso: ssoPanel,
+  credentials: credentialsPanel,
+  session: sessionPanel,
+};
+
+const SESSION_KEYS = ["sf-session-id", "sf-instance-url", "sf-display-name"];
+
+function clearBrowserSession() {
+  SESSION_KEYS.forEach((key) => {
+    sessionStorage.removeItem(key);
+  });
+  localStorage.clear();
+}
+
+async function destroyServerSession() {
+  const activeSessionId = sessionStorage.getItem("sf-session-id");
+  if (!activeSessionId) {
+    return;
+  }
+
+  try {
+    await fetch("/api/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: activeSessionId }),
+      keepalive: true,
+    });
+  } catch {
+    // best-effort cleanup
+  }
+}
+
 let isConnected = false;
 let activeConnectButton = null;
 let userBarEl = null;
+
+function updateSsoCallbackUrl() {
+  if (!ssoCallbackUrlEl) {
+    return;
+  }
+
+  ssoCallbackUrlEl.textContent = `${window.location.origin}/api/oauth/callback`;
+
+  fetch("/api/oauth/config", { headers: { Accept: "application/json" } })
+    .then((response) => (response.ok ? response.json() : null))
+    .then((payload) => {
+      if (payload?.redirectUri && ssoCallbackUrlEl) {
+        ssoCallbackUrlEl.textContent = payload.redirectUri;
+      }
+    })
+    .catch(() => {
+      // keep browser-origin fallback
+    });
+}
+
+updateSsoCallbackUrl();
 
 tabs.forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -31,11 +88,11 @@ tabs.forEach((tab) => {
       item.setAttribute("aria-selected", String(isActive));
     });
 
-    const showCredentials = target === "credentials";
-    credentialsPanel.classList.toggle("active", showCredentials);
-    credentialsPanel.hidden = !showCredentials;
-    sessionPanel.classList.toggle("active", !showCredentials);
-    sessionPanel.hidden = showCredentials;
+    Object.entries(panels).forEach(([name, panel]) => {
+      const isActive = name === target;
+      panel.classList.toggle("active", isActive);
+      panel.hidden = !isActive;
+    });
 
     if (!isConnected) {
       clearStatus();
@@ -117,7 +174,7 @@ function setConnectedState(result, connectButton) {
   const displayName = result.displayName || result.username || "Salesforce User";
   renderUserBar(displayName);
 
-  [credentialsBtn, sessionBtn].forEach((button) => {
+  [ssoBtn, credentialsBtn, sessionBtn].forEach((button) => {
     button.classList.remove("connected");
     button.disabled = false;
     button.textContent = button.dataset.label;
@@ -139,7 +196,7 @@ function resetConnectedState() {
   activeConnectButton = null;
   removeUserBar();
 
-  [credentialsBtn, sessionBtn].forEach((button) => {
+  [ssoBtn, credentialsBtn, sessionBtn].forEach((button) => {
     button.classList.remove("connected");
     button.disabled = false;
     button.textContent = button.dataset.label;
@@ -148,31 +205,29 @@ function resetConnectedState() {
 
 function clearSensitiveFields() {
   SENSITIVE_FIELDS.forEach((name) => {
-    const field = document.querySelector(`[name="${name}"]`);
-    if (field instanceof HTMLInputElement) {
-      field.value = "";
-    }
+    document.querySelectorAll(`[name="${name}"]`).forEach((field) => {
+      if (field instanceof HTMLInputElement) {
+        field.value = "";
+      }
+    });
   });
 
-  const environment = document.getElementById("environment");
-  if (environment instanceof HTMLSelectElement) {
-    environment.selectedIndex = 0;
-  }
+  document.querySelectorAll('select[name="environment"]').forEach((field) => {
+    if (field instanceof HTMLSelectElement) {
+      field.selectedIndex = 0;
+    }
+  });
 }
 
 function clearAllSessionData() {
+  void destroyServerSession();
   resetConnectedState();
   clearSensitiveFields();
   clearStatus();
+  ssoPanel.reset();
   credentialsPanel.reset();
   sessionPanel.reset();
-
-  if (window.sessionStorage) {
-    sessionStorage.removeItem("sf-session-id");
-  }
-  if (window.localStorage) {
-    localStorage.clear();
-  }
+  clearBrowserSession();
 }
 
 function scrubSensitiveDataFromMemory() {
@@ -180,6 +235,12 @@ function scrubSensitiveDataFromMemory() {
   if (!isConnected) {
     clearStatus();
   }
+}
+
+async function scrubSensitiveDataOnExit() {
+  scrubSensitiveDataFromMemory();
+  await destroyServerSession();
+  clearBrowserSession();
 }
 
 async function postJson(url, body) {
@@ -225,8 +286,32 @@ function setLoading(form, isLoading) {
   button.textContent = isLoading ? "Connecting..." : button.dataset.label;
 }
 
-window.addEventListener("pagehide", scrubSensitiveDataFromMemory);
+window.addEventListener("pagehide", () => {
+  void scrubSensitiveDataOnExit();
+});
 window.addEventListener("beforeunload", scrubSensitiveDataFromMemory);
+
+ssoPanel.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (isConnected) {
+    return;
+  }
+
+  clearStatus();
+  setLoading(ssoPanel, true);
+
+  const formData = new FormData(ssoPanel);
+  const body = Object.fromEntries(formData.entries());
+
+  try {
+    const result = await postJson("/api/oauth/start", body);
+    scrubSensitiveFieldsAfterRequest(["clientId", "clientSecret"]);
+    window.location.assign(result.authorizeUrl);
+  } catch (error) {
+    showStatus("error", "Could not start SSO login", error.message);
+    setLoading(ssoPanel, false);
+  }
+});
 
 credentialsPanel.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -328,11 +413,14 @@ sessionPanel.addEventListener("submit", async (event) => {
   }
 });
 
-function scrubSensitiveFieldsAfterRequest(only = ["clientSecret", "password", "sessionId"]) {
+function scrubSensitiveFieldsAfterRequest(
+  only = ["clientId", "clientSecret", "password", "sessionId", "username"],
+) {
   only.forEach((name) => {
-    const field = document.querySelector(`[name="${name}"]`);
-    if (field instanceof HTMLInputElement) {
-      field.value = "";
-    }
+    document.querySelectorAll(`[name="${name}"]`).forEach((field) => {
+      if (field instanceof HTMLInputElement) {
+        field.value = "";
+      }
+    });
   });
 }

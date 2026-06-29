@@ -453,8 +453,15 @@ function updateAllReferenceHints() {
 }
 
 function redirectToLogin() {
-  sessionStorage.removeItem(SESSION_KEY);
+  clearBrowserSession();
   window.location.href = "/";
+}
+
+function clearBrowserSession() {
+  ["sf-session-id", "sf-instance-url", "sf-display-name"].forEach((key) => {
+    sessionStorage.removeItem(key);
+  });
+  localStorage.clear();
 }
 
 function parseJsonField(value, fieldName) {
@@ -517,8 +524,27 @@ async function logout() {
       // proceed with local cleanup
     }
   }
-  sessionStorage.removeItem(SESSION_KEY);
+  sessionId = null;
+  clearBrowserSession();
   redirectToLogin();
+}
+
+function destroySessionOnExit() {
+  const activeSessionId = sessionStorage.getItem(SESSION_KEY);
+  if (!activeSessionId) {
+    clearBrowserSession();
+    return;
+  }
+
+  fetch("/api/logout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionId: activeSessionId }),
+    keepalive: true,
+  }).catch(() => {
+    // best-effort cleanup
+  });
+  clearBrowserSession();
 }
 
 const pane1 = createPane("1", {
@@ -613,5 +639,7 @@ async function init() {
     pane3.setApiVersion(session.apiVersion);
   }
 }
+
+window.addEventListener("pagehide", destroySessionOnExit);
 
 init();

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Completing sign-in…</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <main class="card">
+        <p id="message">Completing sign-in…</p>
+      </main>
+    </div>
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        const error = params.get("error");
+
+        if (error) {
+          document.getElementById("message").textContent = error;
+          document.getElementById("message").className = "status error";
+          return;
+        }
+
+        const sessionId = params.get("sessionId");
+        const instanceUrl = params.get("instanceUrl");
+        const displayName = params.get("displayName");
+        const username = params.get("username");
+
+        if (!sessionId || !instanceUrl) {
+          document.getElementById("message").textContent = "Sign-in response was incomplete. Please try again.";
+          return;
+        }
+
+        sessionStorage.setItem("sf-session-id", sessionId);
+        sessionStorage.setItem("sf-instance-url", instanceUrl);
+        if (displayName || username) {
+          sessionStorage.setItem("sf-display-name", displayName || username);
+        }
+
+        window.location.replace("/callout.html");
+      })();
+    </script>
+  </body>
+</html>

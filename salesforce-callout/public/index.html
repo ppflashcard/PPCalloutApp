@@ -50,8 +50,10 @@
         </span>
         <p>
           <strong>Privacy notice:</strong>
-          Your login details are never saved to disk, database, or browser storage.
-          Closing this page or clicking <em>Log Out</em> will erase everything from memory.
+          Consumer Key, Consumer Secret, passwords, and session IDs are <strong>never saved</strong>
+          to disk, a database, cookies, or browser storage. They exist only in memory for the
+          minimum time needed to connect. Closing this tab or clicking <em>Log Out</em> clears them
+          from the browser and server immediately.
         </p>
       </div>
 
@@ -59,9 +61,19 @@
         <div class="tabs" role="tablist" aria-label="Login method">
           <button
             class="tab active"
-            id="tab-credentials"
+            id="tab-sso"
             role="tab"
             aria-selected="true"
+            aria-controls="panel-sso"
+            data-tab="sso"
+          >
+            SSO Login
+          </button>
+          <button
+            class="tab"
+            id="tab-credentials"
+            role="tab"
+            aria-selected="false"
             aria-controls="panel-credentials"
             data-tab="credentials"
           >
@@ -79,7 +91,60 @@
           </button>
         </div>
 
-        <form id="form-credentials" class="panel active" role="tabpanel" aria-labelledby="tab-credentials" autocomplete="off">
+        <form id="form-sso" class="panel active" role="tabpanel" aria-labelledby="tab-sso" autocomplete="off">
+          <p class="panel-hint">
+            Best for <strong>SSO-enabled orgs</strong>. You sign in through Salesforce (including your corporate SSO),
+            and the app receives a refresh token so access is renewed automatically — no browser session ID needed.
+          </p>
+
+          <ol class="session-steps">
+            <li>In Salesforce, create or edit a Connected App with OAuth enabled.</li>
+            <li>Set the callback URL to the exact value shown below (copy it into your Connected App).</li>
+            <li class="callback-url-row">
+              <code id="sso-callback-url">Loading callback URL…</code>
+            </li>
+            <li>Enable <strong>Refresh Token</strong> under OAuth scopes.</li>
+            <li>Enter your Connected App details below, then click <strong>Sign in with Salesforce</strong>.</li>
+          </ol>
+
+          <div class="field">
+            <label for="sso-environment">Environment</label>
+            <select id="sso-environment" name="environment" required>
+              <option value="prod">Production</option>
+              <option value="sandbox">Sandbox</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="sso-clientId">Client ID</label>
+            <input
+              id="sso-clientId"
+              name="clientId"
+              type="text"
+              autocomplete="off"
+              placeholder="Connected App Consumer Key"
+              required
+            />
+          </div>
+
+          <div class="field">
+            <label for="sso-clientSecret">Client Secret</label>
+            <input
+              id="sso-clientSecret"
+              name="clientSecret"
+              type="password"
+              autocomplete="new-password"
+              placeholder="Connected App Consumer Secret"
+              required
+            />
+          </div>
+
+          <button type="submit" id="btn-connect-sso" class="btn-primary" data-label="Sign in with Salesforce">
+            Sign in with Salesforce
+          </button>
+        </form>
+
+        <form id="form-credentials" class="panel" role="tabpanel" aria-labelledby="tab-credentials" hidden autocomplete="off">
           <div class="field">
             <label for="environment">Environment</label>
             <select id="environment" name="environment" required>

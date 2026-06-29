@@ -1,8 +1,11 @@
 import type {
   CalloutOptions,
   CalloutResult,
+  OAuthAppCredentials,
+  OAuthCodeAuthConfig,
   OAuthTokenResponse,
   SalesforceAuthConfig,
+  TokenAuthConfig,
 } from "./types.js";
 import { SalesforceError } from "./types.js";
 
@@ -33,23 +36,103 @@ function extractSalesforceErrorMessage(body: unknown): string | null {
   return null;
 }
 
+async function requestOAuthToken(
+  loginUrl: string,
+  body: URLSearchParams,
+): Promise<OAuthTokenResponse> {
+  const response = await fetch(`${loginUrl}/services/oauth2/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+
+  const payload = (await response.json()) as OAuthTokenResponse & {
+    error?: string;
+    error_description?: string;
+  };
+
+  if (!response.ok) {
+    throw new SalesforceError(
+      payload.error_description || payload.error || "Authentication failed",
+      response.status,
+      payload,
+    );
+  }
+
+  return payload;
+}
+
+export async function exchangeAuthorizationCode(params: {
+  loginUrl: string;
+  clientId: string;
+  clientSecret: string;
+  code: string;
+  redirectUri: string;
+}): Promise<OAuthTokenResponse> {
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    client_id: params.clientId,
+    client_secret: params.clientSecret,
+    redirect_uri: params.redirectUri,
+    code: params.code,
+  });
+
+  return requestOAuthToken(params.loginUrl, body);
+}
+
 export class SalesforceClient {
   private accessToken: string | null = null;
   private instanceUrl: string | null = null;
+  private refreshToken: string | null = null;
+  private oauthAppCredentials: OAuthAppCredentials | null = null;
 
-  constructor(private readonly config: SalesforceAuthConfig) {
+  constructor(
+    private readonly config: SalesforceAuthConfig,
+    oauthAppCredentials?: OAuthAppCredentials,
+  ) {
     if (config.mode === "session") {
       this.accessToken = config.sessionId;
       this.instanceUrl = config.instanceUrl.replace(/\/$/, "");
+      return;
+    }
+
+    if (config.mode === "token") {
+      this.accessToken = config.accessToken;
+      this.instanceUrl = config.instanceUrl.replace(/\/$/, "");
+      return;
+    }
+
+    if (config.mode === "oauth-code") {
+      this.accessToken = config.accessToken ?? null;
+      this.instanceUrl = config.instanceUrl.replace(/\/$/, "");
+      this.refreshToken = config.refreshToken;
+      this.oauthAppCredentials = oauthAppCredentials ?? null;
+    }
+  }
+
+  clearSensitiveData(): void {
+    this.accessToken = null;
+    this.refreshToken = null;
+    if (this.oauthAppCredentials) {
+      this.oauthAppCredentials.clientId = "";
+      this.oauthAppCredentials.clientSecret = "";
+      this.oauthAppCredentials = null;
     }
   }
 
   async authenticate(): Promise<void> {
-    if (this.config.mode === "session") {
+    if (this.config.mode === "session" || this.config.mode === "token") {
       return;
     }
 
-    const tokenUrl = `${this.config.loginUrl}/services/oauth2/token`;
+    if (this.config.mode === "oauth-code") {
+      if (this.accessToken) {
+        return;
+      }
+      await this.refreshAccessToken();
+      return;
+    }
+
     const body = new URLSearchParams({
       grant_type: "password",
       client_id: this.config.clientId,
@@ -58,27 +141,39 @@ export class SalesforceClient {
       password: this.config.password,
     });
 
-    const response = await fetch(tokenUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-    });
-
-    const payload = (await response.json()) as OAuthTokenResponse & {
-      error?: string;
-      error_description?: string;
-    };
-
-    if (!response.ok) {
-      throw new SalesforceError(
-        payload.error_description || payload.error || "Authentication failed",
-        response.status,
-        payload,
-      );
-    }
-
+    const payload = await requestOAuthToken(this.config.loginUrl, body);
     this.accessToken = payload.access_token;
     this.instanceUrl = payload.instance_url;
+  }
+
+  async refreshAccessToken(): Promise<void> {
+    if (this.config.mode !== "oauth-code") {
+      throw new Error("Token refresh is only supported for OAuth browser login.");
+    }
+
+    if (!this.refreshToken) {
+      throw new SalesforceError("No refresh token available. Please sign in again.", 401);
+    }
+
+    if (!this.oauthAppCredentials) {
+      throw new SalesforceError("Connected App credentials were cleared. Please sign in again.", 401);
+    }
+
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: this.oauthAppCredentials.clientId,
+      client_secret: this.oauthAppCredentials.clientSecret,
+      refresh_token: this.refreshToken,
+    });
+
+    const payload = await requestOAuthToken(this.config.loginUrl, body);
+    this.accessToken = payload.access_token;
+    if (payload.instance_url) {
+      this.instanceUrl = payload.instance_url;
+    }
+    if (payload.refresh_token) {
+      this.refreshToken = payload.refresh_token;
+    }
   }
 
   getSessionInfo(): { accessToken: string; instanceUrl: string } | null {
@@ -95,7 +190,6 @@ export class SalesforceClient {
 
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 
-    // Apex REST and other /services/* paths are not under /services/data/{version}
     if (normalizedPath.startsWith("/services/")) {
       return `${this.instanceUrl}${normalizedPath}`;
     }
@@ -169,30 +263,93 @@ export class SalesforceClient {
     const authSchemes = this.sessionAuthSchemes();
     let lastError: SalesforceError | null = null;
 
-    for (let index = 0; index < authSchemes.length; index += 1) {
-      const authScheme = authSchemes[index];
-      const response = await fetch(url, this.buildRequestInit(options, authScheme));
-      const { data } = await this.parseCalloutResponse<T>(response, method, options.path);
+    for (let authIndex = 0; authIndex < authSchemes.length; authIndex += 1) {
+      const authScheme = authSchemes[authIndex];
 
-      if (response.ok) {
-        return { status: response.status, data: data as T };
-      }
+      for (let refreshAttempt = 0; refreshAttempt < 2; refreshAttempt += 1) {
+        const response = await fetch(url, this.buildRequestInit(options, authScheme));
+        const { data } = await this.parseCalloutResponse<T>(response, method, options.path);
 
-      const message =
-        extractSalesforceErrorMessage(data) ||
-        `Salesforce callout failed: ${method} ${options.path}`;
-      lastError = new SalesforceError(message, response.status, data);
+        if (response.ok) {
+          return { status: response.status, data: data as T };
+        }
 
-      const canRetryAuth =
-        this.config.mode === "session" &&
-        response.status === 401 &&
-        index < authSchemes.length - 1;
+        const message =
+          extractSalesforceErrorMessage(data) ||
+          `Salesforce callout failed: ${method} ${options.path}`;
+        lastError = new SalesforceError(message, response.status, data);
 
-      if (!canRetryAuth) {
-        throw lastError;
+        const canRefreshOAuth =
+          this.config.mode === "oauth-code" &&
+          response.status === 401 &&
+          refreshAttempt === 0;
+
+        if (canRefreshOAuth) {
+          await this.refreshAccessToken();
+          continue;
+        }
+
+        const canRetrySessionAuth =
+          this.config.mode === "session" &&
+          response.status === 401 &&
+          authIndex < authSchemes.length - 1;
+
+        if (!canRetrySessionAuth) {
+          throw lastError;
+        }
+
+        break;
       }
     }
 
     throw lastError ?? new SalesforceError("Salesforce callout failed.", 500);
   }
+}
+
+export function buildOAuthCodeConfig(params: {
+  loginUrl: string;
+  refreshToken: string;
+  accessToken: string;
+  instanceUrl: string;
+  apiVersion: string;
+}): OAuthCodeAuthConfig {
+  return {
+    mode: "oauth-code",
+    loginUrl: params.loginUrl,
+    refreshToken: params.refreshToken,
+    accessToken: params.accessToken,
+    instanceUrl: params.instanceUrl,
+    apiVersion: params.apiVersion,
+  };
+}
+
+export function buildTokenConfig(params: {
+  accessToken: string;
+  instanceUrl: string;
+  apiVersion: string;
+}): TokenAuthConfig {
+  return {
+    mode: "token",
+    accessToken: params.accessToken,
+    instanceUrl: params.instanceUrl,
+    apiVersion: params.apiVersion,
+  };
+}
+
+export function clientFromAuthenticatedSession(
+  client: SalesforceClient,
+  apiVersion: string,
+): SalesforceClient {
+  const session = client.getSessionInfo();
+  if (!session) {
+    throw new Error("Cannot create token client without an active session.");
+  }
+
+  return new SalesforceClient(
+    buildTokenConfig({
+      accessToken: session.accessToken,
+      instanceUrl: session.instanceUrl,
+      apiVersion,
+    }),
+  );
 }
