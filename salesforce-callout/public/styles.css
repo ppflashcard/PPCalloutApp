@@ -35,9 +35,8 @@ body {
   font-size: 15px;
   line-height: 1.5;
   color: var(--slate-700);
-  background:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 40%),
-    linear-gradient(160deg, var(--orange-50) 0%, var(--slate-50) 55%, #eff6ff 100%);
+  background: var(--app-page-background);
+  transition: background 1.4s ease;
 }
 
 .page {
@@ -588,10 +587,8 @@ select {
 .callout-page {
   font-family: "Outfit", "Segoe UI", system-ui, sans-serif;
   color: var(--blue-700);
-  background:
-    radial-gradient(circle at 15% 10%, rgba(249, 115, 22, 0.22), transparent 45%),
-    radial-gradient(circle at 85% 90%, rgba(37, 99, 235, 0.15), transparent 40%),
-    linear-gradient(165deg, #ffedd5 0%, #fff7ed 40%, #fed7aa 100%);
+  background: var(--app-callout-background);
+  transition: background 1.4s ease;
 }
 
 .callout-layout {
@@ -1149,5 +1146,76 @@ select {
 
   .pane-hint {
     font-size: 11px;
+  }
+}
+
+/* ── Ambient background themes (page background only) ── */
+
+:root,
+html[data-bg-theme="day"] {
+  --app-page-background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 40%),
+    linear-gradient(160deg, #fff7ed 0%, #f8fafc 55%, #eff6ff 100%);
+  --app-callout-background:
+    radial-gradient(circle at 15% 10%, rgba(249, 115, 22, 0.22), transparent 45%),
+    radial-gradient(circle at 85% 90%, rgba(37, 99, 235, 0.15), transparent 40%),
+    linear-gradient(165deg, #ffedd5 0%, #fff7ed 40%, #fed7aa 100%);
+}
+
+html[data-bg-theme="dawn"] {
+  --app-page-background:
+    radial-gradient(circle at 80% 0%, rgba(251, 146, 60, 0.28), transparent 42%),
+    linear-gradient(165deg, #fff1f2 0%, #ffedd5 45%, #dbeafe 100%);
+  --app-callout-background:
+    radial-gradient(circle at 20% 0%, rgba(244, 114, 182, 0.18), transparent 45%),
+    radial-gradient(circle at 90% 100%, rgba(251, 146, 60, 0.2), transparent 40%),
+    linear-gradient(165deg, #fff1f2 0%, #ffedd5 50%, #fde68a 100%);
+}
+
+html[data-bg-theme="dusk"] {
+  --app-page-background:
+    radial-gradient(circle at 70% 10%, rgba(168, 85, 247, 0.2), transparent 42%),
+    linear-gradient(165deg, #fff7ed 0%, #fce7f3 40%, #c7d2fe 100%);
+  --app-callout-background:
+    radial-gradient(circle at 10% 15%, rgba(249, 115, 22, 0.24), transparent 45%),
+    radial-gradient(circle at 85% 85%, rgba(99, 102, 241, 0.22), transparent 42%),
+    linear-gradient(165deg, #ffedd5 0%, #fbcfe8 45%, #c7d2fe 100%);
+}
+
+html[data-bg-theme="night"] {
+  --app-page-background:
+    radial-gradient(circle at 85% 5%, rgba(59, 130, 246, 0.18), transparent 38%),
+    radial-gradient(circle at 10% 90%, rgba(99, 102, 241, 0.12), transparent 35%),
+    linear-gradient(165deg, #0f172a 0%, #1e293b 45%, #172554 100%);
+  --app-callout-background:
+    radial-gradient(circle at 20% 10%, rgba(59, 130, 246, 0.16), transparent 42%),
+    radial-gradient(circle at 80% 90%, rgba(249, 115, 22, 0.1), transparent 40%),
+    linear-gradient(165deg, #0f172a 0%, #1e293b 50%, #1e3a5f 100%);
+}
+
+html[data-bg-theme="rain"] {
+  --app-page-background:
+    radial-gradient(circle at 50% 0%, rgba(100, 116, 139, 0.22), transparent 45%),
+    linear-gradient(165deg, #e2e8f0 0%, #cbd5e1 45%, #94a3b8 100%);
+  --app-callout-background:
+    radial-gradient(circle at 30% 0%, rgba(71, 85, 105, 0.2), transparent 45%),
+    radial-gradient(circle at 80% 100%, rgba(59, 130, 246, 0.14), transparent 42%),
+    linear-gradient(165deg, #e2e8f0 0%, #cbd5e1 50%, #94a3b8 100%);
+}
+
+html[data-bg-theme="cold"] {
+  --app-page-background:
+    radial-gradient(circle at 75% 0%, rgba(125, 211, 252, 0.28), transparent 42%),
+    linear-gradient(165deg, #f0f9ff 0%, #e0f2fe 45%, #dbeafe 100%);
+  --app-callout-background:
+    radial-gradient(circle at 15% 10%, rgba(186, 230, 253, 0.35), transparent 45%),
+    radial-gradient(circle at 85% 90%, rgba(147, 197, 253, 0.22), transparent 42%),
+    linear-gradient(165deg, #f0f9ff 0%, #e0f2fe 50%, #bfdbfe 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body,
+  .callout-page {
+    transition: none;
   }
 }

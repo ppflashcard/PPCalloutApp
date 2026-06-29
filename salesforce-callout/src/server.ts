@@ -98,6 +98,7 @@ function getDevReloadVersion(): string {
     path.join(publicDir, "app.js"),
     path.join(publicDir, "callout.js"),
     path.join(publicDir, "styles.css"),
+    path.join(publicDir, "theme.js"),
     path.join(publicDir, "dev-reload.js"),
     path.join(srcDir, "server.ts"),
   ];
