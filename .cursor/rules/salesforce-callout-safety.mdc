@@ -1,0 +1,29 @@
+---
+description: Salesforce callout safety — read-only org access, HTTP callouts only, no sensitive data persistence
+alwaysApply: true
+---
+
+# Salesforce Callout Safety
+
+This project interacts with Salesforce **only through REST API callouts**. Follow these constraints in every change, suggestion, and test.
+
+## 1. Never modify Salesforce data or org configuration
+
+- Treat the Salesforce org as **read-only**.
+- Allowed: `GET` requests, SOQL queries, describe/metadata reads, and other non-mutating API operations.
+- **Not allowed**: creating, updating, or deleting records; bulk loads; metadata deploys; Apex/Flow/Trigger changes; or any write operation (`POST`, `PATCH`, `PUT`, `DELETE`) against Salesforce sObjects or config.
+- OAuth token exchange for authentication is the only exception for `POST` to Salesforce login endpoints.
+
+## 2. Callouts to specified endpoints only
+
+- Work is limited to **HTTP callouts** through the existing client and server — no alternate integration paths (Apex, SOAP, CLI deploys, UI automation).
+- When asked to call an endpoint, **only call that endpoint**. Do not broaden scope to other APIs, objects, or files unless explicitly requested.
+- Do not modify or delete unrelated project files when performing a callout task.
+
+## 3. Never persist sensitive data
+
+- **Do not store** credentials, passwords, client secrets, security tokens, session IDs, or access tokens in:
+  - source code, config files committed to git, databases, or log output
+- Use environment variables (`.env`, not committed) or in-memory session state at runtime only.
+- Never commit `.env` or paste real secrets into chat, comments, or example files.
+- Redact or omit sensitive values from logs, error messages, and API responses shown in the UI.

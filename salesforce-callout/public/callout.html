@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Make Callout — Salesforce</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="callout-page">
+    <div class="page callout-layout">
+      <header class="header callout-header">
+        <div class="header-top">
+          <div class="brand">
+            <div class="brand-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M4 7h16M4 12h10M4 17h14"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M18 10l3 3-3 3"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
+            <div>
+              <h1>REST API Callout</h1>
+              <p id="subtitle">Send requests to your Salesforce org</p>
+            </div>
+          </div>
+
+          <div id="user-bar-mount"></div>
+        </div>
+      </header>
+
+      <main class="split-callout">
+        <div class="callout-column callout-column-left">
+          <section class="card callout-card callout-pane" aria-labelledby="pane-1-title">
+            <div class="pane-header">
+              <h2 id="pane-1-title" class="pane-title">Callout 1</h2>
+              <p class="pane-hint">Configure and send the first request. The response appears below the request body.</p>
+            </div>
+
+            <form id="form-callout-1" class="callout-form" autocomplete="off" data-pane="1">
+              <div class="body-fields-section">
+                <div class="body-fields-header">
+                  <div class="field-label">
+                    <label>Request Body Fields</label>
+                    <span class="optional">Field name → JSON key, value → JSON value</span>
+                  </div>
+                  <button
+                    type="button"
+                    id="btn-add-field-1"
+                    class="btn-add-field"
+                    title="Add field"
+                    aria-label="Add field"
+                  >
+                    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                      <path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="body-fields-1" class="body-fields-list" role="list"></div>
+              </div>
+
+              <div class="callout-row">
+                <div class="field field-method">
+                  <label for="method-1">HTTP Method</label>
+                  <select id="method-1" name="method" required>
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                    <option value="DELETE">DELETE</option>
+                  </select>
+                </div>
+
+                <div class="field field-version">
+                  <label for="apiVersion-1">API Version</label>
+                  <input id="apiVersion-1" name="apiVersion" type="text" readonly value="v59.0" />
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <label for="path-1">API Path</label>
+                  <span class="help-icon" tabindex="0" aria-describedby="help-path-1">
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5" fill="none" />
+                      <path d="M10 9v5M10 6.5h.01" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+                    </svg>
+                    <span class="help-tooltip" id="help-path-1" role="tooltip">
+                      Data API paths are relative to <strong>/services/data/v59.0</strong>
+                      (e.g. <em>/sobjects/Account/describe</em>). Apex REST paths start with
+                      <em>/services/apexrest/</em> and are sent as-is.
+                    </span>
+                  </span>
+                </div>
+                <input
+                  id="path-1"
+                  name="path"
+                  type="text"
+                  placeholder="/services/apexrest/ccal_qa/v1/workspace/initiateSync"
+                  required
+                />
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <label for="headers-1">Custom Headers <span class="optional">(optional, JSON)</span></label>
+                </div>
+                <textarea
+                  id="headers-1"
+                  name="headers"
+                  rows="3"
+                  placeholder='{ "Sforce-Query-Options": "batchSize=200" }'
+                  spellcheck="false"
+                ></textarea>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <label for="body-1">Request Body <span class="optional" id="body-optional-1">(optional, JSON)</span></label>
+                </div>
+                <textarea
+                  id="body-1"
+                  name="body"
+                  rows="6"
+                  placeholder='{ "Name": "Acme Corp" }'
+                  spellcheck="false"
+                ></textarea>
+              </div>
+
+              <div id="response-panel-1" class="field response-field">
+                <div class="field-label response-field-label">
+                  <label for="response-body-1">Response</label>
+                  <span id="response-status-1" class="response-badge" hidden></span>
+                </div>
+                <pre id="response-body-1" class="response-output response-empty" aria-labelledby="pane-1-title">Send a callout to see the response here.</pre>
+              </div>
+
+              <button type="submit" id="btn-send-1" class="btn-primary btn-send" data-label="Send Callout">
+                Send Callout
+              </button>
+            </form>
+
+            <div id="status-1" class="status" hidden></div>
+          </section>
+
+          <section class="card callout-card callout-pane" aria-labelledby="pane-3-title">
+            <div class="pane-header">
+              <h2 id="pane-3-title" class="pane-title">Callout 3</h2>
+              <p class="pane-hint">
+                Chain a third request using values from Callout 1 or Callout 2 with
+                <code>{field from callout 1}</code> or <code>{field from callout 2}</code>.
+              </p>
+            </div>
+
+            <div id="references-hint-3" class="references-hint" hidden></div>
+
+            <form id="form-callout-3" class="callout-form" autocomplete="off" data-pane="3">
+              <div class="body-fields-section">
+                <div class="body-fields-header">
+                  <div class="field-label">
+                    <label>Request Body Fields</label>
+                    <span class="optional">Use <code>{field from callout 1}</code> or <code>{field from callout 2}</code></span>
+                  </div>
+                  <button
+                    type="button"
+                    id="btn-add-field-3"
+                    class="btn-add-field"
+                    title="Add field"
+                    aria-label="Add field"
+                  >
+                    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                      <path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="body-fields-3" class="body-fields-list" role="list"></div>
+              </div>
+
+              <div class="callout-row">
+                <div class="field field-method">
+                  <label for="method-3">HTTP Method</label>
+                  <select id="method-3" name="method" required>
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                    <option value="DELETE">DELETE</option>
+                  </select>
+                </div>
+
+                <div class="field field-version">
+                  <label for="apiVersion-3">API Version</label>
+                  <input id="apiVersion-3" name="apiVersion" type="text" readonly value="v59.0" />
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <label for="path-3">API Path</label>
+                  <span class="help-icon" tabindex="0" aria-describedby="help-path-3">
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5" fill="none" />
+                      <path d="M10 9v5M10 6.5h.01" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+                    </svg>
+                    <span class="help-tooltip" id="help-path-3" role="tooltip">
+                      Data API paths are relative to <strong>/services/data/v59.0</strong>
+                      (e.g. <em>/sobjects/Account/describe</em>). Apex REST paths start with
+                      <em>/services/apexrest/</em> and are sent as-is.
+                    </span>
+                  </span>
+                </div>
+                <input
+                  id="path-3"
+                  name="path"
+                  type="text"
+                  placeholder="/services/apexrest/ccal_qa/v1/workspace/initiateSync"
+                  required
+                />
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <label for="headers-3">Custom Headers <span class="optional">(optional, JSON)</span></label>
+                </div>
+                <textarea
+                  id="headers-3"
+                  name="headers"
+                  rows="3"
+                  placeholder='{ "Sforce-Query-Options": "batchSize=200" }'
+                  spellcheck="false"
+                ></textarea>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <label for="body-3">Request Body <span class="optional" id="body-optional-3">(optional, JSON)</span></label>
+                </div>
+                <textarea
+                  id="body-3"
+                  name="body"
+                  rows="6"
+                  placeholder='{ "Name": "Acme Corp" }'
+                  spellcheck="false"
+                ></textarea>
+              </div>
+
+              <div id="response-panel-3" class="field response-field">
+                <div class="field-label response-field-label">
+                  <label for="response-body-3">Response</label>
+                  <span id="response-status-3" class="response-badge" hidden></span>
+                </div>
+                <pre id="response-body-3" class="response-output response-empty" aria-labelledby="pane-3-title">Send a callout to see the response here.</pre>
+              </div>
+
+              <button type="submit" id="btn-send-3" class="btn-primary btn-send" data-label="Send Callout">
+                Send Callout
+              </button>
+            </form>
+
+            <div id="status-3" class="status" hidden></div>
+          </section>
+        </div>
+
+        <div class="callout-column callout-column-right">
+          <section class="card callout-card callout-pane" aria-labelledby="pane-2-title">
+            <div class="pane-header">
+              <h2 id="pane-2-title" class="pane-title">Callout 2</h2>
+              <p class="pane-hint">After Callout 1 succeeds, map its response fields using <code>{fieldName}</code> or <code>{fieldName from callout 1}</code>.</p>
+            </div>
+
+            <div id="references-hint-2" class="references-hint" hidden></div>
+
+            <form id="form-callout-2" class="callout-form" autocomplete="off" data-pane="2">
+              <div class="body-fields-section">
+                <div class="body-fields-header">
+                  <div class="field-label">
+                    <label>Request Body Fields</label>
+                    <span class="optional">Map Callout 1 values with <code>{fieldName}</code> or <code>{fieldName from callout 1}</code></span>
+                  </div>
+                  <button
+                    type="button"
+                    id="btn-add-field-2"
+                    class="btn-add-field"
+                    title="Add field"
+                    aria-label="Add field"
+                  >
+                    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                      <path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                  </button>
+                </div>
+                <div id="body-fields-2" class="body-fields-list" role="list"></div>
+              </div>
+
+              <div class="callout-row">
+                <div class="field field-method">
+                  <label for="method-2">HTTP Method</label>
+                  <select id="method-2" name="method" required>
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="PATCH">PATCH</option>
+                    <option value="DELETE">DELETE</option>
+                  </select>
+                </div>
+
+                <div class="field field-version">
+                  <label for="apiVersion-2">API Version</label>
+                  <input id="apiVersion-2" name="apiVersion" type="text" readonly value="v59.0" />
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <label for="path-2">API Path</label>
+                  <span class="help-icon" tabindex="0" aria-describedby="help-path-2">
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5" fill="none" />
+                      <path d="M10 9v5M10 6.5h.01" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+                    </svg>
+                    <span class="help-tooltip" id="help-path-2" role="tooltip">
+                      Data API paths are relative to <strong>/services/data/v59.0</strong>
+                      (e.g. <em>/sobjects/Account/describe</em>). Apex REST paths start with
+                      <em>/services/apexrest/</em> and are sent as-is.
+                    </span>
+                  </span>
+                </div>
+                <input
+                  id="path-2"
+                  name="path"
+                  type="text"
+                  placeholder="/services/apexrest/ccal_qa/v1/workspace/initiateSync"
+                  required
+                />
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <label for="headers-2">Custom Headers <span class="optional">(optional, JSON)</span></label>
+                </div>
+                <textarea
+                  id="headers-2"
+                  name="headers"
+                  rows="3"
+                  placeholder='{ "Sforce-Query-Options": "batchSize=200" }'
+                  spellcheck="false"
+                ></textarea>
+              </div>
+
+              <div class="field">
+                <div class="field-label">
+                  <label for="body-2">Request Body <span class="optional" id="body-optional-2">(optional, JSON)</span></label>
+                </div>
+                <textarea
+                  id="body-2"
+                  name="body"
+                  rows="6"
+                  placeholder='{ "Name": "Acme Corp" }'
+                  spellcheck="false"
+                ></textarea>
+              </div>
+
+              <div id="response-panel-2" class="field response-field">
+                <div class="field-label response-field-label">
+                  <label for="response-body-2">Response</label>
+                  <span id="response-status-2" class="response-badge" hidden></span>
+                </div>
+                <pre id="response-body-2" class="response-output response-empty" aria-labelledby="pane-2-title">Send a callout to see the response here.</pre>
+              </div>
+
+              <button type="submit" id="btn-send-2" class="btn-primary btn-send" data-label="Send Callout">
+                Send Callout
+              </button>
+            </form>
+
+            <div id="status-2" class="status" hidden></div>
+          </section>
+        </div>
+      </main>
+
+      <footer class="footer callout-footer">
+        <span>Orange &amp; blue theme</span>
+        <span class="dot"></span>
+        <span>REST API v59.0</span>
+      </footer>
+    </div>
+
+    <script src="/dev-reload.js"></script>
+    <script src="/callout.js"></script>
+  </body>
+</html>

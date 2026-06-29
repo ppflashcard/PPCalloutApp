@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Salesforce Callout</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="header">
+        <div class="header-top">
+          <div class="brand">
+            <div class="brand-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 2L3 7v10l9 5 9-5V7l-9-5z"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M3 7l9 5 9-5M12 12v10"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
+            <div>
+              <h1>Salesforce Callout</h1>
+              <p>Connect to Production or Sandbox</p>
+            </div>
+          </div>
+
+          <div id="user-bar-mount"></div>
+        </div>
+      </header>
+
+      <div class="disclaimer" role="note" aria-live="polite">
+        <span class="disclaimer-icon" aria-hidden="true">
+          <svg viewBox="0 0 20 20" fill="none">
+            <path
+              d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16z"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+            <path d="M10 6.5v4M10 13.5h.01" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+          </svg>
+        </span>
+        <p>
+          <strong>Privacy notice:</strong>
+          Your login details are never saved to disk, database, or browser storage.
+          Closing this page or clicking <em>Log Out</em> will erase everything from memory.
+        </p>
+      </div>
+
+      <main class="card">
+        <div class="tabs" role="tablist" aria-label="Login method">
+          <button
+            class="tab active"
+            id="tab-credentials"
+            role="tab"
+            aria-selected="true"
+            aria-controls="panel-credentials"
+            data-tab="credentials"
+          >
+            Credentials
+          </button>
+          <button
+            class="tab"
+            id="tab-session"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-session"
+            data-tab="session"
+          >
+            Session ID
+          </button>
+        </div>
+
+        <form id="form-credentials" class="panel active" role="tabpanel" aria-labelledby="tab-credentials" autocomplete="off">
+          <div class="field">
+            <label for="environment">Environment</label>
+            <select id="environment" name="environment" required>
+              <option value="prod">Production</option>
+              <option value="sandbox">Sandbox</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="clientId">Client ID</label>
+            <input
+              id="clientId"
+              name="clientId"
+              type="text"
+              autocomplete="off"
+              placeholder="Connected App Consumer Key"
+              required
+            />
+          </div>
+
+          <div class="field">
+            <label for="clientSecret">Client Secret</label>
+            <input
+              id="clientSecret"
+              name="clientSecret"
+              type="password"
+              autocomplete="new-password"
+              placeholder="Connected App Consumer Secret"
+              required
+            />
+          </div>
+
+          <div class="field">
+            <label for="username">Username</label>
+            <input
+              id="username"
+              name="username"
+              type="email"
+              autocomplete="off"
+              placeholder="user@example.com"
+              required
+            />
+          </div>
+
+          <div class="field">
+            <label for="password">Password</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="new-password"
+              placeholder="Password + security token"
+              required
+            />
+          </div>
+
+          <button type="submit" id="btn-connect-credentials" class="btn-primary" data-label="Connect with Credentials">
+            Connect with Credentials
+          </button>
+        </form>
+
+        <form id="form-session" class="panel" role="tabpanel" aria-labelledby="tab-session" hidden autocomplete="off">
+          <p class="panel-hint">
+            Session IDs from <strong>Lightning pages do not work</strong> for REST API calls. Follow the steps below.
+          </p>
+
+          <ol class="session-steps">
+            <li>Paste your org Instance URL below (e.g. <em>https://yourorg.develop.my.salesforce.com</em>).</li>
+            <li>Click <strong>Open API page</strong> — this opens the REST endpoint in a new tab.</li>
+            <li>On that new tab: F12 → <strong>Application</strong> → <strong>Cookies</strong> → select the
+              <strong>develop.my.salesforce.com</strong> domain → copy the full <strong>sid</strong> value.</li>
+            <li>Paste sid here and connect immediately. Do <strong>not</strong> use <code>document.cookie</code> in the Console — sid is HttpOnly.</li>
+          </ol>
+
+          <div class="field">
+            <div class="field-label">
+              <label for="instanceUrl">Instance URL</label>
+              <span class="help-icon" tabindex="0" aria-describedby="help-instance-url">
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5" fill="none" />
+                  <path d="M10 9v5M10 6.5h.01" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+                </svg>
+                <span class="help-tooltip" id="help-instance-url" role="tooltip">
+                  Your org API host only — no path after the domain. Developer org example:
+                  <em>https://sgpt-qa-dev-ed.develop.my.salesforce.com</em>
+                </span>
+              </span>
+            </div>
+            <div class="field-with-action">
+              <input
+                id="instanceUrl"
+                name="instanceUrl"
+                type="url"
+                placeholder="https://yourorg.develop.my.salesforce.com"
+                required
+              />
+              <button type="button" id="btn-open-api-page" class="btn-secondary">
+                Open API page
+              </button>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">
+              <label for="sessionId">Session ID</label>
+              <span class="help-icon" tabindex="0" aria-describedby="help-session-id">
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5" fill="none" />
+                  <path d="M10 9v5M10 6.5h.01" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" />
+                </svg>
+                <span class="help-tooltip" id="help-session-id" role="tooltip">
+                  Copy sid from Application → Cookies on the API page tab (same domain as Instance URL).
+                  sid is HttpOnly and is not visible in the Console. Paste and connect right away.
+                </span>
+              </span>
+            </div>
+            <input
+              id="sessionId"
+              name="sessionId"
+              type="password"
+              autocomplete="new-password"
+              placeholder="Paste your Session ID"
+              required
+            />
+          </div>
+
+          <button type="submit" id="btn-connect-session" class="btn-primary" data-label="Connect with Session ID">
+            Connect with Session ID
+          </button>
+        </form>
+
+        <div id="status" class="status" hidden></div>
+      </main>
+
+      <footer class="footer">
+        <span>Orange &amp; blue theme</span>
+        <span class="dot"></span>
+        <span>REST API v59.0</span>
+      </footer>
+    </div>
+
+    <script src="/dev-reload.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
