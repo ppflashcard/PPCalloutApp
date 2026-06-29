@@ -1,7 +1,19 @@
 (function applyAmbientBackgroundTheme() {
   const CHECK_MS = 15 * 60 * 1000;
+  const STORAGE_KEY = "sf-bg-theme-preference";
   const RAIN_CODES = new Set([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99]);
   const SNOW_CODES = new Set([71, 73, 75, 77, 85, 86]);
+
+  const THEME_OPTIONS = [
+    { id: "auto", label: "Auto" },
+    { id: "day", label: "Day" },
+    { id: "dawn", label: "Dawn" },
+    { id: "dusk", label: "Dusk" },
+    { id: "night", label: "Night" },
+    { id: "rain", label: "Rainy" },
+    { id: "snow", label: "Snow" },
+    { id: "cold", label: "Cold" },
+  ];
 
   let weatherTheme = null;
   let weatherCheckedAt = 0;
@@ -23,23 +35,40 @@
   }
 
   function getWeatherTheme(tempC, weatherCode) {
+    if (typeof weatherCode === "number" && SNOW_CODES.has(weatherCode)) {
+      return "snow";
+    }
     if (typeof weatherCode === "number" && RAIN_CODES.has(weatherCode)) {
       return "rain";
     }
-    if (
-      (typeof weatherCode === "number" && SNOW_CODES.has(weatherCode)) ||
-      (typeof tempC === "number" && tempC <= 5)
-    ) {
+    if (typeof tempC === "number" && tempC <= 5) {
       return "cold";
     }
     return null;
   }
 
-  function setTheme(theme) {
-    document.documentElement.setAttribute("data-bg-theme", theme);
+  function getManualPreference() {
+    return localStorage.getItem(STORAGE_KEY);
   }
 
-  function resolveTheme() {
+  function setManualPreference(value) {
+    if (!value || value === "auto") {
+      localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(STORAGE_KEY, value);
+  }
+
+  function setTheme(theme) {
+    document.documentElement.setAttribute("data-bg-theme", theme);
+    const select = document.getElementById("bg-theme-select");
+    if (select instanceof HTMLSelectElement) {
+      const preference = getManualPreference() || "auto";
+      select.value = preference;
+    }
+  }
+
+  function resolveAutoTheme() {
     return weatherTheme ?? getTimeTheme();
   }
 
@@ -87,10 +116,61 @@
   }
 
   async function updateTheme() {
+    const manual = getManualPreference();
+    if (manual && manual !== "auto") {
+      setTheme(manual);
+      return;
+    }
+
     await refreshWeatherTheme();
-    setTheme(resolveTheme());
+    setTheme(resolveAutoTheme());
   }
 
-  updateTheme();
+  function initThemePicker() {
+    const mount = document.getElementById("theme-picker-mount");
+    if (!mount) {
+      return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "theme-picker";
+    wrapper.innerHTML = `
+      <label class="theme-picker-label" for="bg-theme-select">Background</label>
+      <select id="bg-theme-select" class="theme-picker-select" aria-label="Choose background theme">
+        ${THEME_OPTIONS.map(
+          (option) => `<option value="${option.id}">${option.label}</option>`,
+        ).join("")}
+      </select>
+    `;
+
+    mount.appendChild(wrapper);
+
+    const select = wrapper.querySelector("#bg-theme-select");
+    if (!(select instanceof HTMLSelectElement)) {
+      return;
+    }
+
+    select.value = getManualPreference() || "auto";
+
+    select.addEventListener("change", () => {
+      setManualPreference(select.value);
+      if (select.value === "auto") {
+        void updateTheme();
+        return;
+      }
+      setTheme(select.value);
+    });
+  }
+
+  const manualOnLoad = getManualPreference();
+  setTheme(manualOnLoad && manualOnLoad !== "auto" ? manualOnLoad : getTimeTheme());
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initThemePicker);
+  } else {
+    initThemePicker();
+  }
+
+  void updateTheme();
   window.setInterval(updateTheme, CHECK_MS);
 })();
