@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type {
   CalloutOptions,
   CalloutResult,
@@ -62,12 +63,19 @@ async function requestOAuthToken(
   return payload;
 }
 
+export function createPkcePair(): { codeVerifier: string; codeChallenge: string } {
+  const codeVerifier = crypto.randomBytes(32).toString("base64url");
+  const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
+  return { codeVerifier, codeChallenge };
+}
+
 export async function exchangeAuthorizationCode(params: {
   loginUrl: string;
   clientId: string;
   clientSecret: string;
   code: string;
   redirectUri: string;
+  codeVerifier: string;
 }): Promise<OAuthTokenResponse> {
   const body = new URLSearchParams({
     grant_type: "authorization_code",
@@ -75,6 +83,7 @@ export async function exchangeAuthorizationCode(params: {
     client_secret: params.clientSecret,
     redirect_uri: params.redirectUri,
     code: params.code,
+    code_verifier: params.codeVerifier,
   });
 
   return requestOAuthToken(params.loginUrl, body);

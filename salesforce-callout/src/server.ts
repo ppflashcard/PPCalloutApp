@@ -3,7 +3,7 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { SalesforceClient, resolveLoginUrl, exchangeAuthorizationCode, buildOAuthCodeConfig, clientFromAuthenticatedSession, buildTokenConfig } from "./salesforce/client.js";
+import { SalesforceClient, resolveLoginUrl, exchangeAuthorizationCode, buildOAuthCodeConfig, clientFromAuthenticatedSession, buildTokenConfig, createPkcePair } from "./salesforce/client.js";
 import { SalesforceError } from "./salesforce/types.js";
 import type { HttpMethod, SalesforceAuthConfig, SessionAuthConfig } from "./salesforce/types.js";
 
@@ -28,6 +28,7 @@ interface PendingOAuth {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+  codeVerifier: string;
   createdAt: number;
 }
 
@@ -48,6 +49,7 @@ function wipePendingOAuth(state: string): void {
   if (pending) {
     pending.clientId = "";
     pending.clientSecret = "";
+    pending.codeVerifier = "";
     pendingOAuth.delete(state);
   }
 }
@@ -436,11 +438,13 @@ app.post("/api/oauth/start", (req, res) => {
 
     const redirectUri = getOAuthCallbackUrl(req);
     const state = crypto.randomUUID();
+    const { codeVerifier, codeChallenge } = createPkcePair();
     pendingOAuth.set(state, {
       environment,
       clientId: clientId.trim(),
       clientSecret: clientSecret.trim(),
       redirectUri,
+      codeVerifier,
       createdAt: Date.now(),
     });
 
@@ -451,6 +455,8 @@ app.post("/api/oauth/start", (req, res) => {
     authorizeUrl.searchParams.set("redirect_uri", redirectUri);
     authorizeUrl.searchParams.set("scope", "api refresh_token");
     authorizeUrl.searchParams.set("state", state);
+    authorizeUrl.searchParams.set("code_challenge", codeChallenge);
+    authorizeUrl.searchParams.set("code_challenge_method", "S256");
 
     res.json({
       success: true,
@@ -491,7 +497,7 @@ app.get("/api/oauth/callback", async (req, res) => {
       return;
     }
 
-    const { clientId, clientSecret, redirectUri, environment } = pending;
+    const { clientId, clientSecret, redirectUri, environment, codeVerifier } = pending;
     wipePendingOAuth(state);
 
     const loginUrl = resolveLoginUrl(environment);
@@ -501,6 +507,7 @@ app.get("/api/oauth/callback", async (req, res) => {
       clientSecret,
       code,
       redirectUri,
+      codeVerifier,
     });
 
     if (!tokenResponse.refresh_token) {
