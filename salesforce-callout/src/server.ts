@@ -493,9 +493,13 @@ function handleError(res: express.Response, error: unknown): void {
   res.status(500).json({ error: message });
 }
 
-app.listen(PORT, () => {
-  console.log(`Salesforce Callout UI running at http://localhost:${PORT}`);
-  if (IS_DEV) {
-    console.log("Dev auto-reload enabled — page refreshes when files change.");
-  }
-});
+export default app;
+
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Salesforce Callout UI running at http://localhost:${PORT}`);
+    if (IS_DEV) {
+      console.log("Dev auto-reload enabled — page refreshes when files change.");
+    }
+  });
+}
