@@ -37,22 +37,188 @@ body {
   color: var(--slate-700);
   background: var(--app-page-background);
   transition: background 1.4s ease;
-  position: relative;
-  isolation: isolate;
 }
 
-#bg-effects-canvas {
+#bg-effects-layer {
   position: fixed;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
   z-index: 0;
+  overflow: hidden;
 }
 
-body > :not(#bg-effects-canvas) {
+#bg-effects-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+body > :not(#bg-effects-layer) {
   position: relative;
   z-index: 1;
+}
+
+.bg-scene-sun,
+.bg-scene-moon,
+.bg-scene-clouds {
+  display: none;
+  position: absolute;
+  pointer-events: none;
+}
+
+html[data-bg-effect="sun"] .bg-scene-sun,
+html[data-bg-effect="sun-dawn"] .bg-scene-sun,
+html[data-bg-effect="sun-dusk"] .bg-scene-sun {
+  display: block;
+}
+
+html[data-bg-effect="moon"] .bg-scene-moon {
+  display: block;
+}
+
+html[data-bg-effect="rain"] .bg-scene-clouds,
+html[data-bg-effect="snow"] .bg-scene-clouds,
+html[data-bg-effect="snow-light"] .bg-scene-clouds {
+  display: block;
+}
+
+.bg-scene-sun {
+  top: 48px;
+  right: 8%;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff9c4 0%, #fde047 35%, #fbbf24 70%, #f59e0b 100%);
+  box-shadow:
+    0 0 40px 16px rgba(251, 191, 36, 0.55),
+    0 0 90px 36px rgba(251, 191, 36, 0.25);
+  animation: sun-pulse 4s ease-in-out infinite;
+}
+
+html[data-bg-effect="sun-dawn"] .bg-scene-sun {
+  top: 120px;
+  right: 12%;
+  width: 78px;
+  height: 78px;
+  background: radial-gradient(circle at 35% 35%, #fff1f2 0%, #fdba74 40%, #fb923c 100%);
+  box-shadow:
+    0 0 36px 14px rgba(251, 146, 60, 0.45),
+    0 0 70px 28px rgba(244, 114, 182, 0.2);
+}
+
+html[data-bg-effect="sun-dusk"] .bg-scene-sun {
+  top: 140px;
+  right: 10%;
+  width: 72px;
+  height: 72px;
+  background: radial-gradient(circle at 35% 35%, #fef3c7 0%, #fb923c 45%, #ea580c 100%);
+  box-shadow:
+    0 0 34px 12px rgba(234, 88, 12, 0.45),
+    0 0 60px 24px rgba(168, 85, 247, 0.18);
+}
+
+.bg-scene-moon {
+  top: 56px;
+  right: 9%;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 38%, #f8fafc 0%, #e2e8f0 55%, #cbd5e1 100%);
+  box-shadow:
+    -10px 10px 0 0 rgba(15, 23, 42, 0.92),
+    0 0 28px 10px rgba(226, 232, 240, 0.35);
+  animation: moon-glow 5s ease-in-out infinite;
+}
+
+.bg-scene-clouds {
+  inset: 0;
+}
+
+.bg-cloud {
+  position: absolute;
+  display: block;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow:
+    24px 8px 0 -4px rgba(255, 255, 255, 0.82),
+    -20px 10px 0 -6px rgba(255, 255, 255, 0.75),
+    0 14px 24px rgba(100, 116, 139, 0.18);
+  opacity: 0.88;
+}
+
+.bg-cloud-1 {
+  top: 72px;
+  left: 8%;
+  width: 120px;
+  height: 42px;
+  animation: cloud-drift 28s linear infinite;
+}
+
+.bg-cloud-2 {
+  top: 130px;
+  right: 18%;
+  width: 150px;
+  height: 48px;
+  animation: cloud-drift 36s linear infinite reverse;
+}
+
+.bg-cloud-3 {
+  top: 96px;
+  left: 42%;
+  width: 100px;
+  height: 36px;
+  animation: cloud-drift 32s linear infinite;
+  animation-delay: -8s;
+}
+
+html[data-bg-effect="rain"] .bg-cloud {
+  background: rgba(203, 213, 225, 0.92);
+  box-shadow:
+    24px 8px 0 -4px rgba(203, 213, 225, 0.92),
+    -20px 10px 0 -6px rgba(148, 163, 184, 0.85),
+    0 16px 28px rgba(71, 85, 105, 0.22);
+}
+
+@keyframes sun-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.06);
+    filter: brightness(1.08);
+  }
+}
+
+@keyframes moon-glow {
+  0%,
+  100% {
+    box-shadow:
+      -10px 10px 0 0 rgba(15, 23, 42, 0.92),
+      0 0 24px 8px rgba(226, 232, 240, 0.28);
+  }
+  50% {
+    box-shadow:
+      -10px 10px 0 0 rgba(15, 23, 42, 0.92),
+      0 0 36px 14px rgba(226, 232, 240, 0.42);
+  }
+}
+
+@keyframes cloud-drift {
+  0% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(28px);
+  }
+  100% {
+    transform: translateX(0);
+  }
 }
 
 .page {
@@ -1319,5 +1485,11 @@ html[data-bg-theme="snow"] {
   body,
   .callout-page {
     transition: none;
+  }
+
+  .bg-scene-sun,
+  .bg-scene-moon,
+  .bg-cloud {
+    animation: none !important;
   }
 }
