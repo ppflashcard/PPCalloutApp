@@ -394,12 +394,26 @@ html[data-bg-effect="rain"] .bg-cloud {
 
 .tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
   padding: 4px;
   margin-bottom: 20px;
   background: var(--slate-100);
   border-radius: 12px;
+}
+
+.tab-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--success-text);
+  background: var(--success-bg);
+  border-radius: 999px;
+  vertical-align: middle;
 }
 
 .tab {
@@ -568,7 +582,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   padding: 10px 12px;
   font-size: 15px;
@@ -580,12 +595,21 @@ select {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+textarea {
+  resize: vertical;
+  min-height: 120px;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 input::placeholder {
   color: #94a3b8;
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   border-color: var(--blue-500);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
@@ -722,6 +746,26 @@ select {
 
 .status a:hover {
   color: var(--orange-700);
+}
+
+.status .link-button {
+  color: var(--blue-700);
+  font-weight: 600;
+}
+
+.status .link-button:hover {
+  color: var(--orange-700);
+}
+
+.link-button {
+  border: none;
+  padding: 0;
+  background: none;
+  color: var(--blue-600);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .footer {

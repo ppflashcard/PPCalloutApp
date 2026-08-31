@@ -18,6 +18,15 @@
         const error = params.get("error");
 
         if (error) {
+          if (window.opener) {
+            window.opener.postMessage(
+              { type: "sf-oauth-complete", success: false, error },
+              window.location.origin,
+            );
+            window.close();
+            return;
+          }
+
           document.getElementById("message").textContent = error;
           document.getElementById("message").className = "status error";
           return;
@@ -29,7 +38,33 @@
         const username = params.get("username");
 
         if (!sessionId || !instanceUrl) {
-          document.getElementById("message").textContent = "Sign-in response was incomplete. Please try again.";
+          const incompleteMessage = "Sign-in response was incomplete. Please try again.";
+          if (window.opener) {
+            window.opener.postMessage(
+              { type: "sf-oauth-complete", success: false, error: incompleteMessage },
+              window.location.origin,
+            );
+            window.close();
+            return;
+          }
+
+          document.getElementById("message").textContent = incompleteMessage;
+          return;
+        }
+
+        if (window.opener) {
+          window.opener.postMessage(
+            {
+              type: "sf-oauth-complete",
+              success: true,
+              sessionId,
+              instanceUrl,
+              displayName: displayName || username,
+              username: username || displayName,
+            },
+            window.location.origin,
+          );
+          window.close();
           return;
         }
 

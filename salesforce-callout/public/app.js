@@ -1,21 +1,68 @@
 const tabs = document.querySelectorAll(".tab");
 const ssoPanel = document.getElementById("form-sso");
 const credentialsPanel = document.getElementById("form-credentials");
+const jwtPanel = document.getElementById("form-jwt");
 const sessionPanel = document.getElementById("form-session");
 const statusEl = document.getElementById("status");
 const userBarMount = document.getElementById("user-bar-mount");
 const ssoBtn = document.getElementById("btn-connect-sso");
 const credentialsBtn = document.getElementById("btn-connect-credentials");
+const jwtBtn = document.getElementById("btn-connect-jwt");
 const sessionBtn = document.getElementById("btn-connect-session");
 const openApiPageBtn = document.getElementById("btn-open-api-page");
 const instanceUrlInput = document.getElementById("instanceUrl");
 const ssoCallbackUrlEl = document.getElementById("sso-callback-url");
+const credentialsConnectedAppFields = document.getElementById("credentials-connected-app-fields");
+const credentialsServerConfigHint = document.getElementById("credentials-server-config-hint");
+const clientIdInput = document.getElementById("clientId");
+const clientSecretInput = document.getElementById("clientSecret");
+const jwtConfigFields = document.getElementById("jwt-config-fields");
+const jwtServerConfigHint = document.getElementById("jwt-server-config-hint");
+
+function configureCredentialsForm(hasServerCredentials) {
+  if (credentialsConnectedAppFields instanceof HTMLElement) {
+    credentialsConnectedAppFields.hidden = hasServerCredentials;
+  }
+
+  if (credentialsServerConfigHint instanceof HTMLElement) {
+    credentialsServerConfigHint.hidden = !hasServerCredentials;
+  }
+}
+
+function configureJwtForm(hasJwtConfig) {
+  if (jwtConfigFields instanceof HTMLElement) {
+    jwtConfigFields.hidden = hasJwtConfig;
+  }
+
+  if (jwtServerConfigHint instanceof HTMLElement) {
+    jwtServerConfigHint.hidden = !hasJwtConfig;
+  }
+}
+
+fetch("/api/login/config", { headers: { Accept: "application/json" } })
+  .then((response) => (response.ok ? response.json() : null))
+  .then((payload) => {
+    configureCredentialsForm(Boolean(payload?.hasServerCredentials));
+    configureJwtForm(Boolean(payload?.hasJwtConfig));
+  })
+  .catch(() => {
+    configureCredentialsForm(false);
+    configureJwtForm(false);
+  });
+
+function switchToTab(tabName) {
+  const tab = document.querySelector(`.tab[data-tab="${tabName}"]`);
+  if (tab instanceof HTMLButtonElement) {
+    tab.click();
+  }
+}
 
 const SENSITIVE_FIELDS = [
   "clientId",
   "clientSecret",
   "username",
   "password",
+  "privateKey",
   "instanceUrl",
   "sessionId",
 ];
@@ -23,6 +70,7 @@ const SENSITIVE_FIELDS = [
 const panels = {
   sso: ssoPanel,
   credentials: credentialsPanel,
+  jwt: jwtPanel,
   session: sessionPanel,
 };
 
@@ -56,6 +104,7 @@ async function destroyServerSession() {
 let isConnected = false;
 let activeConnectButton = null;
 let userBarEl = null;
+let preserveSessionOnExit = false;
 
 function updateSsoCallbackUrl() {
   if (!ssoCallbackUrlEl) {
@@ -159,6 +208,7 @@ function navigateToCallout(result) {
     sessionStorage.setItem("sf-display-name", result.displayName || result.username);
   }
 
+  preserveSessionOnExit = true;
   window.location.replace("/callout.html");
 }
 
@@ -174,7 +224,7 @@ function setConnectedState(result, connectButton) {
   const displayName = result.displayName || result.username || "Salesforce User";
   renderUserBar(displayName);
 
-  [ssoBtn, credentialsBtn, sessionBtn].forEach((button) => {
+  [ssoBtn, credentialsBtn, jwtBtn, sessionBtn].forEach((button) => {
     button.classList.remove("connected");
     button.disabled = false;
     button.textContent = button.dataset.label;
@@ -196,7 +246,7 @@ function resetConnectedState() {
   activeConnectButton = null;
   removeUserBar();
 
-  [ssoBtn, credentialsBtn, sessionBtn].forEach((button) => {
+  [ssoBtn, credentialsBtn, jwtBtn, sessionBtn].forEach((button) => {
     button.classList.remove("connected");
     button.disabled = false;
     button.textContent = button.dataset.label;
@@ -226,6 +276,7 @@ function clearAllSessionData() {
   clearStatus();
   ssoPanel.reset();
   credentialsPanel.reset();
+  jwtPanel.reset();
   sessionPanel.reset();
   clearBrowserSession();
 }
@@ -271,7 +322,14 @@ async function postJson(url, body) {
   }
 
   if (!response.ok) {
-    throw new Error(payload.error || "Request failed.");
+    const error = new Error(payload.error || "Request failed.");
+    if (payload.code) {
+      error.code = payload.code;
+    }
+    if (payload.recommendation) {
+      error.recommendation = payload.recommendation;
+    }
+    throw error;
   }
   return payload;
 }
@@ -283,10 +341,91 @@ function setLoading(form, isLoading) {
   }
 
   button.disabled = isLoading;
-  button.textContent = isLoading ? "Connecting..." : button.dataset.label;
+  button.textContent = isLoading ? "Waiting for sign-in..." : button.dataset.label;
+}
+
+function openSalesforceLoginPopup(authorizeUrl) {
+  return new Promise((resolve, reject) => {
+    const width = 520;
+    const height = 720;
+    const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2);
+    const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2);
+
+    const popup = window.open(
+      authorizeUrl,
+      "salesforce-login",
+      `width=${width},height=${height},left=${left},top=${top},popup=yes,resizable=yes,scrollbars=yes`,
+    );
+
+    if (!popup) {
+      reject(
+        new Error(
+          "Popup blocked by your browser. Allow popups for this site and try again.",
+        ),
+      );
+      return;
+    }
+
+    popup.focus();
+
+    let completed = false;
+    const timeoutMs = 10 * 60 * 1000;
+
+    const timeoutId = window.setTimeout(() => {
+      if (completed) {
+        return;
+      }
+      cleanup();
+      reject(new Error("Sign-in timed out. Please try again."));
+    }, timeoutMs);
+
+    function onMessage(event) {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      const data = event.data;
+      if (!data || data.type !== "sf-oauth-complete") {
+        return;
+      }
+
+      completed = true;
+      cleanup();
+
+      if (!data.success) {
+        reject(new Error(data.error || "Sign-in failed."));
+        return;
+      }
+
+      resolve(data);
+    }
+
+    const pollId = window.setInterval(() => {
+      if (completed) {
+        return;
+      }
+
+      if (popup.closed) {
+        completed = true;
+        cleanup();
+        reject(new Error("Sign-in popup was closed before login completed."));
+      }
+    }, 400);
+
+    function cleanup() {
+      window.clearTimeout(timeoutId);
+      window.clearInterval(pollId);
+      window.removeEventListener("message", onMessage);
+    }
+
+    window.addEventListener("message", onMessage);
+  });
 }
 
 window.addEventListener("pagehide", () => {
+  if (preserveSessionOnExit) {
+    return;
+  }
   void scrubSensitiveDataOnExit();
 });
 window.addEventListener("beforeunload", scrubSensitiveDataFromMemory);
@@ -306,7 +445,24 @@ ssoPanel.addEventListener("submit", async (event) => {
   try {
     const result = await postJson("/api/oauth/start", body);
     scrubSensitiveFieldsAfterRequest(["clientId", "clientSecret"]);
-    window.location.assign(result.authorizeUrl);
+
+    try {
+      const oauthResult = await openSalesforceLoginPopup(result.authorizeUrl);
+      navigateToCallout({
+        sessionId: oauthResult.sessionId,
+        instanceUrl: oauthResult.instanceUrl,
+        displayName: oauthResult.displayName,
+        username: oauthResult.username,
+        connected: true,
+      });
+    } catch (popupError) {
+      showStatus(
+        "error",
+        "Salesforce sign-in failed",
+        `${popupError.message} You can also allow popups and try again.`,
+      );
+      setLoading(ssoPanel, false);
+    }
   } catch (error) {
     showStatus("error", "Could not start SSO login", error.message);
     setLoading(ssoPanel, false);
@@ -328,14 +484,58 @@ credentialsPanel.addEventListener("submit", async (event) => {
   const body = Object.fromEntries(formData.entries());
 
   try {
-    const result = await postJson("/api/login/oauth", body);
+    const result = await postJson("/api/login/password", body);
     setConnectedState(result, button);
   } catch (error) {
-    showStatus("error", "Connection failed", error.message);
+    let detail = error.message;
+    if (error.recommendation) {
+      detail = `${error.message} ${error.recommendation}`;
+    }
+    if (error.code === "SOAP_DISABLED") {
+      if (credentialsConnectedAppFields instanceof HTMLElement) {
+        credentialsConnectedAppFields.hidden = false;
+      }
+      if (clientIdInput instanceof HTMLInputElement) {
+        clientIdInput.focus();
+      }
+      detail += ' Or switch to the <button type="button" class="link-button" id="goto-sso-tab">SSO Login</button> tab.';
+    }
+    showStatus("error", "Username & password login failed", detail);
+    const gotoSso = document.getElementById("goto-sso-tab");
+    if (gotoSso instanceof HTMLButtonElement) {
+      gotoSso.addEventListener("click", () => switchToTab("sso"), { once: true });
+    }
   } finally {
     scrubSensitiveFieldsAfterRequest();
     if (!isConnected) {
       setLoading(credentialsPanel, false);
+    }
+  }
+});
+
+jwtPanel.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (isConnected) {
+    return;
+  }
+
+  clearStatus();
+  const button = jwtBtn;
+  setLoading(jwtPanel, true);
+
+  const formData = new FormData(jwtPanel);
+  const body = Object.fromEntries(formData.entries());
+
+  try {
+    const result = await postJson("/api/login/jwt", body);
+    scrubSensitiveFieldsAfterRequest(["privateKey", "clientId"]);
+    setConnectedState(result, button);
+  } catch (error) {
+    showStatus("error", "JWT login failed", error.message);
+  } finally {
+    scrubSensitiveFieldsAfterRequest(["privateKey"]);
+    if (!isConnected) {
+      setLoading(jwtPanel, false);
     }
   }
 });
@@ -414,7 +614,7 @@ sessionPanel.addEventListener("submit", async (event) => {
 });
 
 function scrubSensitiveFieldsAfterRequest(
-  only = ["clientId", "clientSecret", "password", "sessionId", "username"],
+  only = ["clientId", "clientSecret", "password", "privateKey", "sessionId", "username"],
 ) {
   only.forEach((name) => {
     document.querySelectorAll(`[name="${name}"]`).forEach((field) => {

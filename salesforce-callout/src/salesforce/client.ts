@@ -3,6 +3,7 @@ import type {
   CalloutOptions,
   CalloutResult,
   OAuthAppCredentials,
+  OAuthAuthConfig,
   OAuthCodeAuthConfig,
   OAuthTokenResponse,
   SalesforceAuthConfig,
@@ -149,10 +150,14 @@ export class SalesforceClient {
       username: this.config.username,
       password: this.config.password,
     });
+    body.set("scope", "api refresh_token");
 
     const payload = await requestOAuthToken(this.config.loginUrl, body);
     this.accessToken = payload.access_token;
     this.instanceUrl = payload.instance_url;
+    if (payload.refresh_token) {
+      this.refreshToken = payload.refresh_token;
+    }
   }
 
   async refreshAccessToken(): Promise<void> {
@@ -342,6 +347,54 @@ export function buildTokenConfig(params: {
     accessToken: params.accessToken,
     instanceUrl: params.instanceUrl,
     apiVersion: params.apiVersion,
+  };
+}
+
+export function clientFromPasswordGrant(
+  config: OAuthAuthConfig,
+  payload: OAuthTokenResponse,
+  appCredentials: OAuthAppCredentials,
+): SalesforceClient {
+  if (payload.refresh_token) {
+    return new SalesforceClient(
+      buildOAuthCodeConfig({
+        loginUrl: config.loginUrl,
+        refreshToken: payload.refresh_token,
+        accessToken: payload.access_token,
+        instanceUrl: payload.instance_url,
+        apiVersion: config.apiVersion,
+      }),
+      appCredentials,
+    );
+  }
+
+  return new SalesforceClient(
+    buildTokenConfig({
+      accessToken: payload.access_token,
+      instanceUrl: payload.instance_url,
+      apiVersion: config.apiVersion,
+    }),
+  );
+}
+
+export async function loginWithOAuthPassword(
+  config: OAuthAuthConfig,
+): Promise<{ client: SalesforceClient; refreshEnabled: boolean }> {
+  const body = new URLSearchParams({
+    grant_type: "password",
+    client_id: config.clientId,
+    client_secret: config.clientSecret,
+    username: config.username,
+    password: config.password,
+  });
+  body.set("scope", "api refresh_token");
+
+  const payload = await requestOAuthToken(config.loginUrl, body);
+  const appCredentials = { clientId: config.clientId, clientSecret: config.clientSecret };
+
+  return {
+    client: clientFromPasswordGrant(config, payload, appCredentials),
+    refreshEnabled: Boolean(payload.refresh_token),
   };
 }
 

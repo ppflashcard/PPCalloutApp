@@ -71,6 +71,7 @@
             data-tab="sso"
           >
             SSO Login
+            <span class="tab-badge">Recommended</span>
           </button>
           <button
             class="tab"
@@ -80,7 +81,17 @@
             aria-controls="panel-credentials"
             data-tab="credentials"
           >
-            Credentials
+            Username &amp; Password
+          </button>
+          <button
+            class="tab"
+            id="tab-jwt"
+            role="tab"
+            aria-selected="false"
+            aria-controls="panel-jwt"
+            data-tab="jwt"
+          >
+            JWT Login
           </button>
           <button
             class="tab"
@@ -96,8 +107,8 @@
 
         <form id="form-sso" class="panel active" role="tabpanel" aria-labelledby="tab-sso" autocomplete="off">
           <p class="panel-hint">
-            Best for <strong>SSO-enabled orgs</strong>. You sign in through Salesforce (including your corporate SSO),
-            and the app receives a refresh token so access is renewed automatically — no browser session ID needed.
+            <strong>Best option for long sessions.</strong> Click below to open the official Salesforce login page in a popup.
+            After you sign in, the popup closes and you continue to callouts automatically — tokens refresh in the background.
           </p>
 
           <ol class="session-steps">
@@ -107,7 +118,7 @@
               <code id="sso-callback-url">Loading callback URL…</code>
             </li>
             <li>Enable <strong>Refresh Token</strong> under OAuth scopes.</li>
-            <li>Enter your Connected App details below, then click <strong>Sign in with Salesforce</strong>.</li>
+            <li>Enter your Connected App details below, then click <strong>Sign in with Salesforce</strong> — a login popup will open.</li>
           </ol>
 
           <div class="field">
@@ -142,12 +153,18 @@
             />
           </div>
 
-          <button type="submit" id="btn-connect-sso" class="btn-primary" data-label="Sign in with Salesforce">
-            Sign in with Salesforce
+          <button type="submit" id="btn-connect-sso" class="btn-primary" data-label="Open Salesforce Login">
+            Open Salesforce Login
           </button>
         </form>
 
         <form id="form-credentials" class="panel" role="tabpanel" aria-labelledby="tab-credentials" hidden autocomplete="off">
+          <p class="panel-hint">
+            Enter your Salesforce username and password. If your org disabled SOAP login, also provide Connected App
+            Client ID and Secret below — enable <strong>Allow OAuth Username-Password Flow</strong> and
+            <strong>Refresh Token</strong> on the Connected App for auto-renewal.
+          </p>
+
           <div class="field">
             <label for="environment">Environment</label>
             <select id="environment" name="environment" required>
@@ -156,29 +173,33 @@
             </select>
           </div>
 
-          <div class="field">
-            <label for="clientId">Client ID</label>
-            <input
-              id="clientId"
-              name="clientId"
-              type="text"
-              autocomplete="off"
-              placeholder="Connected App Consumer Key"
-              required
-            />
+          <div id="credentials-connected-app-fields">
+            <div class="field">
+              <label for="clientId">Client ID</label>
+              <input
+                id="clientId"
+                name="clientId"
+                type="text"
+                autocomplete="off"
+                placeholder="Connected App Consumer Key"
+              />
+            </div>
+
+            <div class="field">
+              <label for="clientSecret">Client Secret</label>
+              <input
+                id="clientSecret"
+                name="clientSecret"
+                type="password"
+                autocomplete="new-password"
+                placeholder="Connected App Consumer Secret"
+              />
+            </div>
           </div>
 
-          <div class="field">
-            <label for="clientSecret">Client Secret</label>
-            <input
-              id="clientSecret"
-              name="clientSecret"
-              type="password"
-              autocomplete="new-password"
-              placeholder="Connected App Consumer Secret"
-              required
-            />
-          </div>
+          <p id="credentials-server-config-hint" class="panel-hint" hidden>
+            Connected App credentials are configured on the server (<code>.env</code>). Only username and password are needed below.
+          </p>
 
           <div class="field">
             <label for="username">Username</label>
@@ -186,7 +207,7 @@
               id="username"
               name="username"
               type="email"
-              autocomplete="off"
+              autocomplete="username"
               placeholder="user@example.com"
               required
             />
@@ -198,14 +219,78 @@
               id="password"
               name="password"
               type="password"
-              autocomplete="new-password"
-              placeholder="Password + security token"
+              autocomplete="current-password"
+              placeholder="Your Salesforce password"
               required
             />
           </div>
 
-          <button type="submit" id="btn-connect-credentials" class="btn-primary" data-label="Connect with Credentials">
-            Connect with Credentials
+          <button type="submit" id="btn-connect-credentials" class="btn-primary" data-label="Sign in with Username &amp; Password">
+            Sign in with Username &amp; Password
+          </button>
+        </form>
+
+        <form id="form-jwt" class="panel" role="tabpanel" aria-labelledby="tab-jwt" hidden autocomplete="off">
+          <p class="panel-hint">
+            Server-to-server login using a Connected App certificate — no browser popup, no SOAP, no user password.
+            Tokens are renewed automatically when they expire, so callouts keep working.
+          </p>
+
+          <ol class="session-steps">
+            <li>In your Connected App, enable <strong>Use digital signatures</strong> and upload your certificate.</li>
+            <li>Copy the <strong>Consumer Key</strong> (Client ID) and the matching <strong>private key</strong> (.key file).</li>
+            <li>Pre-authorize the integration user for this Connected App in Salesforce.</li>
+          </ol>
+
+          <div class="field">
+            <label for="jwt-environment">Environment</label>
+            <select id="jwt-environment" name="environment" required>
+              <option value="prod">Production</option>
+              <option value="sandbox">Sandbox</option>
+            </select>
+          </div>
+
+          <div id="jwt-config-fields">
+            <div class="field">
+              <label for="jwt-clientId">Client ID</label>
+              <input
+                id="jwt-clientId"
+                name="clientId"
+                type="text"
+                autocomplete="off"
+                placeholder="Connected App Consumer Key"
+              />
+            </div>
+
+            <div class="field">
+              <label for="jwt-username">Integration Username</label>
+              <input
+                id="jwt-username"
+                name="username"
+                type="email"
+                autocomplete="off"
+                placeholder="integration.user@example.com"
+              />
+            </div>
+
+            <div class="field">
+              <label for="jwt-privateKey">Private Key (PEM)</label>
+              <textarea
+                id="jwt-privateKey"
+                name="privateKey"
+                rows="6"
+                autocomplete="off"
+                placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+              ></textarea>
+            </div>
+          </div>
+
+          <p id="jwt-server-config-hint" class="panel-hint" hidden>
+            JWT credentials are configured on the server (<code>.env</code>). Click connect to sign in with the configured integration user.
+          </p>
+
+          <button type="submit" id="btn-connect-jwt" class="btn-primary" data-label="Connect with JWT">
+            Connect with JWT
           </button>
         </form>
 

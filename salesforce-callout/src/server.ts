@@ -3,9 +3,12 @@ import express from "express";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { SalesforceClient, resolveLoginUrl, exchangeAuthorizationCode, buildOAuthCodeConfig, clientFromAuthenticatedSession, buildTokenConfig, createPkcePair } from "./salesforce/client.js";
+import { getServerJwtConfig, getServerOAuthCredentials, hasServerJwtConfig, hasServerOAuthCredentials } from "./config.js";
+import { SalesforceClient, resolveLoginUrl, exchangeAuthorizationCode, buildOAuthCodeConfig, clientFromAuthenticatedSession, buildTokenConfig, createPkcePair, loginWithOAuthPassword } from "./salesforce/client.js";
+import { formatJwtLoginError, loginWithJwtBearer, normalizePrivateKey, type JwtRenewalConfig } from "./salesforce/jwt.js";
+import { formatSoapLoginError, isSoapLoginDisabled, soapLogin } from "./salesforce/soap.js";
 import { SalesforceError } from "./salesforce/types.js";
-import type { HttpMethod, SalesforceAuthConfig, SessionAuthConfig } from "./salesforce/types.js";
+import type { CalloutOptions, HttpMethod, OAuthAuthConfig, SalesforceAuthConfig, SessionAuthConfig } from "./salesforce/types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "..", "public");
@@ -19,6 +22,7 @@ interface StoredSession {
   displayName: string;
   username: string;
   instanceUrl: string;
+  jwtRenewal?: JwtRenewalConfig;
 }
 
 const sessions = new Map<string, StoredSession>();
@@ -58,6 +62,9 @@ function destroySession(sessionId: string): void {
   const stored = sessions.get(sessionId);
   if (stored) {
     stored.client.clearSensitiveData();
+    if (stored.jwtRenewal) {
+      stored.jwtRenewal.privateKey = "";
+    }
     sessions.delete(sessionId);
   }
 }
@@ -124,10 +131,25 @@ app.use((_req, res, next) => {
 app.use(express.json());
 app.use(express.static(publicDir));
 
+interface JwtLoginBody {
+  environment: "prod" | "sandbox";
+  clientId?: string;
+  username?: string;
+  privateKey?: string;
+}
+
+interface PasswordLoginBody {
+  environment: "prod" | "sandbox";
+  username: string;
+  password: string;
+  clientId?: string;
+  clientSecret?: string;
+}
+
 interface OAuthLoginBody {
   environment: "prod" | "sandbox";
-  clientId: string;
-  clientSecret: string;
+  clientId?: string;
+  clientSecret?: string;
   username: string;
   password: string;
 }
@@ -143,15 +165,84 @@ interface OAuthStartBody {
   clientSecret: string;
 }
 
-function buildOAuthConfig(body: OAuthLoginBody): SalesforceAuthConfig {
+function resolveOAuthLoginCredentials(body: OAuthLoginBody): { clientId: string; clientSecret: string } | null {
+  const serverCredentials = getServerOAuthCredentials();
+  const clientId = body.clientId?.trim() || serverCredentials?.clientId || "";
+  const clientSecret = body.clientSecret?.trim() || serverCredentials?.clientSecret || "";
+
+  if (!clientId || !clientSecret) {
+    return null;
+  }
+
+  return { clientId, clientSecret };
+}
+
+function buildOAuthConfig(
+  body: OAuthLoginBody,
+  credentials: { clientId: string; clientSecret: string },
+): OAuthAuthConfig {
   return {
     mode: "oauth",
     loginUrl: resolveLoginUrl(body.environment),
-    clientId: body.clientId.trim(),
-    clientSecret: body.clientSecret.trim(),
+    clientId: credentials.clientId,
+    clientSecret: credentials.clientSecret,
     username: body.username.trim(),
     password: body.password,
     apiVersion: API_VERSION,
+  };
+}
+
+function formatPasswordFlowError(error: SalesforceError): string {
+  const body = error.body;
+  let errorCode = "";
+  let errorDescription = error.message;
+
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    const payload = body as { error?: string; error_description?: string };
+    errorCode = payload.error?.trim() || "";
+    errorDescription = payload.error_description?.trim() || error.message;
+  }
+
+  if (errorCode === "invalid_grant" || errorDescription.toLowerCase().includes("authentication failure")) {
+    return "Invalid username or password. If your org requires it, append your Salesforce security token to your password with no spaces.";
+  }
+
+  if (errorCode === "invalid_client_id" || errorDescription.toLowerCase().includes("client identifier invalid")) {
+    return "Invalid Connected App Client ID or Client Secret. Check your Connected App credentials.";
+  }
+
+  if (
+    errorDescription.toLowerCase().includes("oauth username-password flow") ||
+    errorDescription.toLowerCase().includes("password flow")
+  ) {
+    return "Username-Password flow is disabled for this Connected App. In Setup → App Manager → your Connected App → Edit, enable “Allow OAuth Username-Password Flow”.";
+  }
+
+  return errorDescription;
+}
+
+async function completeOAuthPasswordLogin(
+  body: OAuthLoginBody,
+  credentials: { clientId: string; clientSecret: string },
+): Promise<{
+  client: SalesforceClient;
+  instanceUrl: string;
+  username: string;
+  refreshEnabled: boolean;
+}> {
+  const oauthConfig = buildOAuthConfig(body, credentials);
+  const { client, refreshEnabled } = await loginWithOAuthPassword(oauthConfig);
+  const session = client.getSessionInfo();
+
+  if (!session) {
+    throw new Error("Login succeeded but session was not created.");
+  }
+
+  return {
+    client,
+    instanceUrl: session.instanceUrl,
+    username: body.username.trim(),
+    refreshEnabled,
   };
 }
 
@@ -254,7 +345,7 @@ function enrichSessionLoginError(error: unknown, attemptedUrls: string[]): unkno
     : " Open your Instance URL + /services/data/ in a new tab first, then copy sid from that same domain (not from a Lightning page).";
 
   return new SalesforceError(
-    `Salesforce rejected the session ID.${urlHint}${developHint} If this keeps failing, use the Credentials tab — many orgs block Lightning browser sessions for API use.`,
+    `Salesforce rejected the session ID.${urlHint}${developHint} If this keeps failing, use the Username & Password tab — many orgs block Lightning browser sessions for API use.`,
     error instanceof SalesforceError ? error.status : 401,
     error instanceof SalesforceError ? error.body : undefined,
   );
@@ -300,15 +391,56 @@ interface SalesforceUser {
   username: string;
 }
 
-function createSession(client: SalesforceClient, user: SalesforceUser, instanceUrl: string): string {
+function createSession(
+  client: SalesforceClient,
+  user: SalesforceUser,
+  instanceUrl: string,
+  jwtRenewal?: JwtRenewalConfig,
+): string {
   const sessionId = crypto.randomUUID();
   sessions.set(sessionId, {
     client,
     displayName: user.displayName,
     username: user.username,
     instanceUrl,
+    jwtRenewal,
   });
   return sessionId;
+}
+
+async function renewJwtSession(session: StoredSession): Promise<void> {
+  if (!session.jwtRenewal) {
+    throw new SalesforceError("JWT session cannot be renewed. Please log in again.", 401);
+  }
+
+  const token = await loginWithJwtBearer({
+    loginUrl: session.jwtRenewal.loginUrl,
+    clientId: session.jwtRenewal.clientId,
+    username: session.jwtRenewal.username,
+    privateKey: session.jwtRenewal.privateKey,
+  });
+
+  session.client = new SalesforceClient(
+    buildTokenConfig({
+      accessToken: token.accessToken,
+      instanceUrl: token.instanceUrl,
+      apiVersion: session.jwtRenewal.apiVersion,
+    }),
+  );
+  session.instanceUrl = token.instanceUrl;
+}
+
+async function executeSessionCallout(session: StoredSession, options: CalloutOptions) {
+  try {
+    return await session.client.callout(options);
+  } catch (error) {
+    if (error instanceof SalesforceError && error.status === 401 && session.jwtRenewal) {
+      await renewJwtSession(session);
+      return await session.client.callout(options);
+    }
+
+    throw error;
+  }
 }
 
 function getSession(sessionId: string | undefined): StoredSession | null {
@@ -378,46 +510,285 @@ async function fetchCurrentUser(
   return fallback ?? { displayName: "Salesforce User", username: "Unknown user" };
 }
 
-app.post("/api/login/oauth", async (req, res) => {
+app.get("/api/login/config", (_req, res) => {
+  res.json({
+    hasServerCredentials: hasServerOAuthCredentials(),
+    hasJwtConfig: hasServerJwtConfig(),
+  });
+});
+
+app.post("/api/login/jwt", async (req, res) => {
   try {
-    const { environment, clientId, clientSecret, username, password } =
-      req.body as OAuthLoginBody;
+    const body = req.body as JwtLoginBody;
+    const { environment } = body;
 
-    if (!environment || !clientId || !clientSecret || !username || !password) {
-      res.status(400).json({ error: "All login fields are required." });
+    if (!environment) {
+      res.status(400).json({ error: "Environment is required." });
       return;
     }
 
-    const client = new SalesforceClient(buildOAuthConfig(req.body));
-    await client.authenticate();
+    const serverJwt = getServerJwtConfig();
+    const clientId = body.clientId?.trim() || serverJwt?.clientId || "";
+    const username = body.username?.trim() || serverJwt?.username || "";
+    const privateKey = body.privateKey?.trim() || serverJwt?.privateKey || "";
 
-    const session = client.getSessionInfo();
-    if (!session) {
-      res.status(500).json({ error: "Login succeeded but session was not created." });
+    if (!clientId || !username || !privateKey) {
+      res.status(400).json({
+        error: "Client ID, integration username, and private key are required for JWT login.",
+      });
       return;
     }
 
-    const tokenClient = clientFromAuthenticatedSession(client, API_VERSION);
+    const loginUrl = resolveLoginUrl(environment);
+    const normalizedKey = normalizePrivateKey(privateKey);
+    const token = await loginWithJwtBearer({
+      loginUrl,
+      clientId,
+      username,
+      privateKey: normalizedKey,
+    });
+
+    const client = new SalesforceClient(
+      buildTokenConfig({
+        accessToken: token.accessToken,
+        instanceUrl: token.instanceUrl,
+        apiVersion: API_VERSION,
+      }),
+    );
+
+    const fallbackUser: SalesforceUser = {
+      displayName: username,
+      username,
+    };
 
     let user: SalesforceUser;
     try {
-      user = await fetchCurrentUser(tokenClient);
+      user = await fetchCurrentUser(client, fallbackUser);
     } catch {
-      user = { displayName: username.trim(), username: username.trim() };
+      user = fallbackUser;
     }
 
-    const sessionId = createSession(tokenClient, user, session.instanceUrl);
+    const jwtRenewal: JwtRenewalConfig = {
+      loginUrl,
+      clientId,
+      username,
+      privateKey: normalizedKey,
+      apiVersion: API_VERSION,
+    };
+
+    const sessionId = createSession(client, user, token.instanceUrl, jwtRenewal);
 
     res.json({
       success: true,
       connected: true,
       sessionId,
-      instanceUrl: session.instanceUrl,
+      instanceUrl: token.instanceUrl,
       displayName: user.displayName,
       username: user.username,
-      message: "Connected",
+      refreshEnabled: true,
+      message: "Connected with JWT auto-renewal",
     });
   } catch (error) {
+    if (error instanceof SalesforceError) {
+      res.status(error.status || 401).json({
+        error: formatJwtLoginError(error),
+        details: error.body,
+      });
+      return;
+    }
+
+    handleError(res, error);
+  }
+});
+
+app.post("/api/login/password", async (req, res) => {
+  try {
+    const body = req.body as PasswordLoginBody;
+    const { environment, username, password } = body;
+
+    if (!environment || !username || !password) {
+      res.status(400).json({
+        error: "Environment, username, and password are required.",
+      });
+      return;
+    }
+
+    const credentials = resolveOAuthLoginCredentials(body);
+    const loginUrl = resolveLoginUrl(environment);
+    const fallbackUser: SalesforceUser = {
+      displayName: username.trim(),
+      username: username.trim(),
+    };
+
+    if (credentials) {
+      const login = await completeOAuthPasswordLogin(
+        { environment, username, password, clientId: credentials.clientId, clientSecret: credentials.clientSecret },
+        credentials,
+      );
+
+      let user: SalesforceUser;
+      try {
+        user = await fetchCurrentUser(login.client, fallbackUser);
+      } catch {
+        user = fallbackUser;
+      }
+
+      const sessionId = createSession(login.client, user, login.instanceUrl);
+
+      res.json({
+        success: true,
+        connected: true,
+        sessionId,
+        instanceUrl: login.instanceUrl,
+        displayName: user.displayName,
+        username: user.username,
+        refreshEnabled: login.refreshEnabled,
+        message: login.refreshEnabled ? "Connected with auto-refresh" : "Connected",
+      });
+      return;
+    }
+
+    try {
+      const soapResult = await soapLogin({
+        loginUrl,
+        username,
+        password,
+        apiVersion: API_VERSION,
+      });
+
+      const client = new SalesforceClient(
+        buildTokenConfig({
+          accessToken: soapResult.sessionId,
+          instanceUrl: soapResult.instanceUrl,
+          apiVersion: API_VERSION,
+        }),
+      );
+
+      let user: SalesforceUser;
+      try {
+        user = await fetchCurrentUser(client, fallbackUser);
+      } catch {
+        user = fallbackUser;
+      }
+
+      const sessionId = createSession(client, user, soapResult.instanceUrl);
+
+      res.json({
+        success: true,
+        connected: true,
+        sessionId,
+        instanceUrl: soapResult.instanceUrl,
+        displayName: user.displayName,
+        username: user.username,
+        refreshEnabled: false,
+        message: "Connected",
+      });
+    } catch (soapError) {
+      if (!(soapError instanceof SalesforceError) || !isSoapLoginDisabled(soapError)) {
+        throw soapError;
+      }
+
+      const serverCredentials = getServerOAuthCredentials();
+      if (serverCredentials) {
+        const login = await completeOAuthPasswordLogin(
+          { environment, username, password },
+          serverCredentials,
+        );
+
+        let user: SalesforceUser;
+        try {
+          user = await fetchCurrentUser(login.client, fallbackUser);
+        } catch {
+          user = fallbackUser;
+        }
+
+        const sessionId = createSession(login.client, user, login.instanceUrl);
+
+        res.json({
+          success: true,
+          connected: true,
+          sessionId,
+          instanceUrl: login.instanceUrl,
+          displayName: user.displayName,
+          username: user.username,
+          refreshEnabled: login.refreshEnabled,
+          message: login.refreshEnabled ? "Connected with auto-refresh" : "Connected",
+        });
+        return;
+      }
+
+      res.status(403).json({
+        error: formatSoapLoginError(soapError),
+        code: "SOAP_DISABLED",
+        recommendation:
+          "Use the SSO Login tab (best — tokens refresh automatically), or enter Connected App Client ID and Secret below with your username and password.",
+      });
+    }
+  } catch (error) {
+    if (error instanceof SalesforceError) {
+      const message =
+        typeof error.body === "string" ? formatSoapLoginError(error) : formatPasswordFlowError(error);
+
+      res.status(error.status || 401).json({
+        error: message,
+        details: error.body,
+      });
+      return;
+    }
+
+    handleError(res, error);
+  }
+});
+
+app.post("/api/login/oauth", async (req, res) => {
+  try {
+    const { environment, username, password } = req.body as OAuthLoginBody;
+
+    if (!environment || !username || !password) {
+      res.status(400).json({
+        error: "Environment, username, and password are required.",
+      });
+      return;
+    }
+
+    const credentials = resolveOAuthLoginCredentials(req.body as OAuthLoginBody);
+    if (!credentials) {
+      res.status(400).json({
+        error: "Connected App Client ID and Client Secret are required.",
+      });
+      return;
+    }
+
+    const login = await completeOAuthPasswordLogin(req.body as OAuthLoginBody, credentials);
+
+    let user: SalesforceUser;
+    try {
+      user = await fetchCurrentUser(login.client);
+    } catch {
+      user = { displayName: login.username, username: login.username };
+    }
+
+    const sessionId = createSession(login.client, user, login.instanceUrl);
+
+    res.json({
+      success: true,
+      connected: true,
+      sessionId,
+      instanceUrl: login.instanceUrl,
+      displayName: user.displayName,
+      username: user.username,
+      refreshEnabled: login.refreshEnabled,
+      message: login.refreshEnabled ? "Connected with auto-refresh" : "Connected",
+    });
+  } catch (error) {
+    if (error instanceof SalesforceError) {
+      res.status(error.status || 401).json({
+        error: formatPasswordFlowError(error),
+        details: error.body,
+      });
+      return;
+    }
+
     handleError(res, error);
   }
 });
@@ -640,7 +1011,7 @@ app.post("/api/callout", async (req, res) => {
     }
 
     const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-    const result = await session.client.callout({
+    const result = await executeSessionCallout(session, {
       method,
       path: normalizedPath,
       body: body !== undefined && body !== "" ? body : undefined,
